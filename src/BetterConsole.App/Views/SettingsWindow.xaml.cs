@@ -186,7 +186,7 @@ public partial class SettingsWindow : Window
         _vm.Controller.Pipeline.HideErrors = s.HideErrorsInConsole;
         _vm.ServerErrors.MaxItems = s.MaxErrorsPerList;
         _vm.ClientErrors.MaxItemsPerPlayer = Math.Max(50, s.MaxErrorsPerList / 2);
-        if (_vm.BridgeConnected) _vm.Controller.Bridge.Send("cmds");
+        if (_vm.BridgeConnected) _vm.Request("cmds");
         _vm.RaiseSettingsChanged();
         _saved = true;
         DialogResult = true;

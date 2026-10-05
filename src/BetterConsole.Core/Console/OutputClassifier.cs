@@ -30,7 +30,8 @@ internal sealed partial class OutputClassifier
     private static partial Regex ErrorHead();
 
     // "[addon name] path/to/file.lua:123: message" - the path is what tells it from an ordinary "[tag] text" print.
-    [GeneratedRegex(@"^\[(?<addon>[^\]|]{1,120})\] (?<msg>[^:]*?\.lua:-?\d+: .*)$")]
+    // Code run from the console is "lua_run:1:" (or "RunString:1:", "LuaCmd:1:").
+    [GeneratedRegex(@"^\[(?<addon>[^\]|]{1,120})\] (?<msg>(?:[^:]*?\.lua|lua_run|RunString(?:Ex)?|LuaCmd):-?\d+: .*)$")]
     private static partial Regex AddonErrorHead();
 
     // "  1. unknown - addons/x/lua/autorun/foo.lua:12" (deeper frames are indented further)
@@ -42,6 +43,17 @@ internal sealed partial class OutputClassifier
 
     [GeneratedRegex(@"^\[(?<name>.*)\|(?<uid>\d+)\|(?<sid>[^\]|]*)\] Lua Error:\s*$")]
     private static partial Regex ClientHead();
+
+    // What the engine names as a timer's function when it is the companion's timer wrapper.
+    [GeneratedRegex(@"\[@[^\[\]]*betterconsole/sv_timers\.lua \(line -?\d+\)\]")]
+    private static partial Regex WrapperTimerSource();
+
+    // The "chunk:line: " a Lua error message starts with ("lua_run:1: ", "addons/x/lua/y.lua:12: ").
+    [GeneratedRegex(@"^\S.*?:-?\d+: ")]
+    private static partial Regex LuaLocation();
+
+    /// <summary>Lines of a multi-line error message taken before the stack, at most.</summary>
+    private const int MaxMessageLines = 8;
 
     private enum Mode { Normal, InError, AfterError }
 
@@ -122,7 +134,8 @@ internal sealed partial class OutputClassifier
             var m = StackLine().Match(text);
             if (m.Success)
             {
-                _error!.Frames.Add(new StackFrame(m.Groups["fn"].Value, m.Groups["src"].Value,
+                _error!.SawStack = true;
+                _error.Frames.Add(new StackFrame(m.Groups["fn"].Value, m.Groups["src"].Value,
                     m.Groups["line"].Success && int.TryParse(m.Groups["line"].Value, out int ln) ? ln : 0));
                 _error.LastLineAt = line.Time;
                 HideError(id, line);
@@ -130,26 +143,38 @@ internal sealed partial class OutputClassifier
             }
             if (blank)
             {
-                FinishError();
-                HideError(id, line);
-                return;
+                if (FinishError())
+                {
+                    HideError(id, line);
+                    return;
+                }
             }
-            if (_error!.Frames.Count == 0 && (line.Time - _error.LastLineAt).TotalMilliseconds < 50 && !ErrorHead().IsMatch(text) && !AddonErrorHead().IsMatch(text) && !ClientHead().IsMatch(text))
+            else if (!_error!.SawStack && _error.MessageLines.Count < MaxMessageLines
+                     && (line.Time - _error.LastLineAt).TotalMilliseconds < 50
+                     && !ErrorHead().IsMatch(text) && !AddonErrorHead().IsMatch(text) && !ClientHead().IsMatch(text))
             {
-                // A multi-line error message: the rest of the message comes before the stack.
-                _error.Message += "\n" + text;
+                // Maybe a multi-line error message: the rest of the message comes before the stack.
+                // Decided when the error ends (see FinishError).
+                _error.MessageLines.Add((id, line));
                 _error.LastLineAt = line.Time;
                 HideError(id, line);
                 return;
             }
-            FinishError();
+            else FinishError();
         }
 
         if (_mode == Mode.AfterError)
         {
             if (TimerFailed().IsMatch(text) && _finished != null)
             {
-                _finished = _finished with { Context = text.Trim() };
+                var context = text.Trim();
+                // Under the timer detour the engine sees the wrapper; the outermost frame is the real function.
+                if (_finished.Stack.Count > 0 && WrapperTimerSource().IsMatch(context))
+                {
+                    var f = _finished.Stack[^1];
+                    context = WrapperTimerSource().Replace(context, $"[@{f.Source} (line {f.Line})]");
+                }
+                _finished = _finished with { Context = context };
                 _blanksToEat = 1;
                 _afterErrorSince = _clock();
                 HideError(id, line);
@@ -169,12 +194,13 @@ internal sealed partial class OutputClassifier
         var addonHead = head.Success ? Match.Empty : AddonErrorHead().Match(text);
         if (head.Success || addonHead.Success)
         {
-            DropHeldBlank();
+            var blankBefore = DropHeldBlank();
             var player = _clientHead;
             _clientHead = null;
             _error = head.Success
                 ? new ErrorBuilder(head.Groups["msg"].Value, line.Time, player)
                 : new ErrorBuilder(addonHead.Groups["msg"].Value, line.Time, player) { Addon = addonHead.Groups["addon"].Value };
+            if (head.Success && player == null) _error.PlainHead = (id, line, blankBefore);
             _mode = Mode.InError;
             HideError(id, line);
             return;
@@ -242,17 +268,41 @@ internal sealed partial class OutputClassifier
         Show(id, line);
     }
 
-    private void FinishError()
+    /// <returns>False when it was not an error after all; its lines are back in the console then.</returns>
+    private bool FinishError()
     {
-        if (_error == null) return;
+        if (_error == null) return false;
         var e = _error;
         _error = null;
         EmitFinished();
+        var message = e.Message;
+        if (!e.SawStack)
+        {
+            // Without a stack the lines after the head were just output that followed it quickly, and an
+            // "[ERROR] ..." line without a Lua location is somebody's print, not a Lua error.
+            bool print = e.PlainHead != null && !LuaLocation().IsMatch(e.Message);
+            if (print)
+            {
+                var ph = e.PlainHead!.Value;
+                if (ph.BlankBefore is { } bb) Unhide(bb.Id, bb.Line);
+                Unhide(ph.Id, ph.Line);
+            }
+            foreach (var (lid, l) in e.MessageLines) Unhide(lid, l);
+            if (print)
+            {
+                _mode = Mode.Normal;
+                return false;
+            }
+        }
+        else if (e.MessageLines.Count > 0)
+        {
+            message += "\n" + string.Join("\n", e.MessageLines.Select(l => l.Line.Text));
+        }
         _finished = new LuaError
         {
             Realm = e.Player != null ? LuaRealm.Client : LuaRealm.Server,
-            Message = e.Message,
-            Stack = e.Frames.ToArray(),
+            Message = message,
+            Stack = WithoutWrappers(e.Frames),
             Time = e.StartedAt,
             Player = e.Player,
             AddonTitle = e.Addon,
@@ -262,6 +312,18 @@ internal sealed partial class OutputClassifier
         // srcds prints one to three blank lines after an error (three after a client's).
         _blanksToEat = 3;
         _afterErrorSince = _clock();
+        return true;
+    }
+
+    /// <summary>
+    /// The companion's profiler and timer wrappers are not part of anybody's bug: their frames go,
+    /// unless the bug is the companion's own (its code is the innermost Lua frame).
+    /// </summary>
+    private static StackFrame[] WithoutWrappers(List<StackFrame> frames)
+    {
+        var first = frames.FirstOrDefault(f => f.Source != "[C]");
+        if (first == null || first.Source.Contains("betterconsole/", StringComparison.Ordinal)) return frames.ToArray();
+        return frames.Where(f => !f.Source.Contains("betterconsole/sv_", StringComparison.Ordinal)).ToArray();
     }
 
     private void EmitFinished()
@@ -287,14 +349,25 @@ internal sealed partial class OutputClassifier
         while (_hiddenOrder.Count > 512) _hidden.Remove(_hiddenOrder.Dequeue());
     }
 
-    private void DropHeldBlank()
+    /// <summary>A line taken for part of an error that was not: shown after all, in its place.</summary>
+    private void Unhide(long id, ConsoleLine line)
     {
+        if (!HideErrors) return; // shown already
+        _hidden.Remove(id);
+        Show(id, line);
+    }
+
+    private (long Id, ConsoleLine Line)? DropHeldBlank()
+    {
+        (long, ConsoleLine)? dropped = null;
         if (_heldBlank is { } hb)
         {
             if (HideErrors) HideAlways(hb.Id);
             else Show(hb.Id, hb.Line);
+            dropped = (hb.Id, hb.Line);
         }
         _heldBlank = null;
+        return dropped;
     }
 
     private void ReleaseHeldBlank()
@@ -305,8 +378,12 @@ internal sealed partial class OutputClassifier
 
     private sealed class ErrorBuilder(string message, DateTime at, PlayerRef? player)
     {
-        public string Message = message;
+        public readonly string Message = message;
+        public readonly List<(long Id, ConsoleLine Line)> MessageLines = new();
+        /// <summary>Set for an "[ERROR]" head of a server error: it is a print unless a location or a stack follows.</summary>
+        public (long Id, ConsoleLine Line, (long Id, ConsoleLine Line)? BlankBefore)? PlainHead;
         public readonly List<StackFrame> Frames = new();
+        public bool SawStack;
         public readonly DateTime StartedAt = at;
         public DateTime LastLineAt = at;
         public readonly PlayerRef? Player = player;

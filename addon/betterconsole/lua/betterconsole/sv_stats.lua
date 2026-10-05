@@ -139,6 +139,26 @@ function BC.StartStats()
 	hook.Add("Tick", "BetterConsole.Tick", function() OnTick() end)
 end
 
+-- While the server hibernates there are no frames: betterconsole_poll calls this for the numbers that
+-- still mean something.
+function BC.IdleSummary()
+	if SysTime() - lastSummary < 2 then return end   -- frames are running: the normal summary does it
+	BC.Emit({
+		t = "stats",
+		idle = true,
+		players = #player.GetHumans(),
+		bots = #player.GetBots(),
+		maxplayers = game.MaxPlayers(),
+		tickrate = 1 / tickInterval,
+		ents = ents.GetCount(),
+		edicts = ents.GetEdictCount and ents.GetEdictCount() or nil,
+		lua = collectgarbage("count"),
+		map = game.GetMap(),
+		uptime = SysTime() - BC.StartTime,
+	})
+	if BC.SendPlayers then BC.SendPlayers() end
+end
+
 -- Player joins and leaves are pushed at once instead of waiting for the next list.
 function BC.PlayersChanged() nextPlayers = 0 end
 hook.Add("PlayerInitialSpawn", "BetterConsole", function() nextPlayers = 0 end)

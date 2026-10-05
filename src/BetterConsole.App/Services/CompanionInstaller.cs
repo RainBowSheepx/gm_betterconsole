@@ -43,7 +43,14 @@ public static class CompanionInstaller
             if (!target.StartsWith(addonRoot, StringComparison.OrdinalIgnoreCase)) continue;
             expected.Add(target);
             using var s = asm.GetManifestResourceStream(name)!;
-            if (WriteIfChanged(s, target)) written++; else unchanged++;
+            try
+            {
+                if (WriteIfChanged(s, target)) written++; else unchanged++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                warnings.Add($"Could not write {rel}: {ex.Message}");
+            }
         }
         // Files of an older version that no longer exist.
         if (Directory.Exists(addonRoot))
@@ -68,12 +75,11 @@ public static class CompanionInstaller
             else
             {
                 var bin = Path.Combine(game, "lua", "bin");
-                Directory.CreateDirectory(bin);
                 try
                 {
                     if (WriteIfChanged(ms, Path.Combine(bin, module))) written++; else unchanged++;
                 }
-                catch (IOException ex)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     warnings.Add($"Could not update {module} (is another server using it?): {ex.Message}");
                 }
@@ -94,8 +100,16 @@ public static class CompanionInstaller
         }
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         var tmp = target + ".new";
-        File.WriteAllBytes(tmp, bytes);
-        File.Move(tmp, target, true);
+        try
+        {
+            File.WriteAllBytes(tmp, bytes);
+            File.Move(tmp, target, true);
+        }
+        catch
+        {
+            try { File.Delete(tmp); } catch { }
+            throw;
+        }
         return true;
     }
 }

@@ -26,7 +26,7 @@ Hooks:
 BetterConsole = BetterConsole or {}
 local BC = BetterConsole
 
-BC.Version = "0.1.0"
+BC.Version = "0.1.2"
 BC.Registry = BC.Registry or { tabs = {}, order = {}, status = {} }
 local R = BC.Registry
 

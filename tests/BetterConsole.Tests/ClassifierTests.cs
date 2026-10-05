@@ -157,6 +157,86 @@ public class ClassifierTests
     }
 
     [Fact]
+    public void MultiLineMessageBeforeTheStack()
+    {
+        var h = new Harness();
+        h.Feed("[ERROR] x.lua:1: first", "second", "  1. unknown - x.lua:1", "", "after");
+        h.Settle();
+        Assert.Equal(["after"], h.Shown);
+        Assert.Equal("x.lua:1: first\nsecond", Assert.Single(h.Errors).Message);
+    }
+
+    [Fact]
+    public void ErrorPrintWithoutLocationStaysInTheConsole()
+    {
+        var h = new Harness();
+        h.Feed("a", "", "[ERROR] Could not connect to the database", "retrying in 5 s", "b", "", "c");
+        h.Settle();
+        Assert.Equal(["a", "", "[ERROR] Could not connect to the database", "retrying in 5 s", "b", "", "c"], h.Shown);
+        Assert.Empty(h.Errors);
+    }
+
+    [Fact]
+    public void OutputRightAfterAnErrorWithoutStackIsNotSwallowed()
+    {
+        var h = new Harness();
+        var flood = Enumerable.Range(1, 20).Select(i => "line " + i).ToArray();
+        h.Feed(["[my-addon] addons/my-addon/lua/x/init.lua:1: '=' expected near 'y'", .. flood]);
+        h.Settle();
+        Assert.Equal(flood, h.Shown);
+        Assert.Equal("addons/my-addon/lua/x/init.lua:1: '=' expected near 'y'", Assert.Single(h.Errors).Message);
+    }
+
+    [Fact]
+    public void TimerContextNamesTheRealFunctionNotTheWrapper()
+    {
+        var h = new Harness();
+        h.Feed("[ERROR] addons/a/lua/autorun/server/t.lua:7: boom",
+            "  1. fn - addons/a/lua/autorun/server/t.lua:7",
+            "   2. unknown - addons/betterconsole/lua/betterconsole/sv_timers.lua:37", "",
+            "Timer Failed! [MyTimer][@addons/betterconsole/lua/betterconsole/sv_timers.lua (line 37)]", "", "after");
+        h.Settle();
+        Assert.Equal(["after"], h.Shown);
+        var e = Assert.Single(h.Errors);
+        Assert.Equal(new StackFrame("fn", "addons/a/lua/autorun/server/t.lua", 7), Assert.Single(e.Stack));
+        Assert.Equal("Timer Failed! [MyTimer][@addons/a/lua/autorun/server/t.lua (line 7)]", e.Context);
+    }
+
+    [Fact]
+    public void TimerErrorBlamedOnTheCompanionIsGivenBack()
+    {
+        var h = new Harness();
+        h.Feed("", "[betterconsole] lua_run:1: timer boom",
+            "  1. error - [C]:-1",
+            "   2. fn - lua_run:1",
+            "    3. m - addons/betterconsole/lua/betterconsole/sv_profiler.lua:285",
+            "     4. unknown - addons/betterconsole/lua/betterconsole/sv_timers.lua:40", "",
+            "Timer Failed! [bc_test_timer][@lua_run (line 1)]", "", "after");
+        h.Settle();
+        Assert.Equal(["after"], h.Shown);
+        var e = Assert.Single(h.Errors);
+        Assert.Equal("lua_run:1: timer boom", e.Message);
+        Assert.Equal(["[C]", "lua_run"], e.Stack.Select(f => f.Source));
+        Assert.Null(ErrorAttribution.Fix(e).AddonTitle);
+
+        var other = e with { Stack = [new StackFrame("fn", "addons/my-addon/lua/autorun/server/x.lua", 3)] };
+        Assert.Equal("my-addon", ErrorAttribution.Fix(other).AddonTitle);
+    }
+
+    [Fact]
+    public void TheCompanionsOwnBugsKeepTheirStack()
+    {
+        var h = new Harness();
+        h.Feed("[betterconsole] addons/betterconsole/lua/betterconsole/sv_core.lua:80: oops",
+            "  1. Think - addons/betterconsole/lua/betterconsole/sv_core.lua:80",
+            "   2. unknown - lua/includes/modules/hook.lua:96", "", "after");
+        h.Settle();
+        var e = Assert.Single(h.Errors);
+        Assert.Equal(2, e.Stack.Count);
+        Assert.Equal("betterconsole", ErrorAttribution.Fix(e).AddonTitle);
+    }
+
+    [Fact]
     public void FingerprintMergesEntityIndices()
     {
         var a = new LuaError { Realm = LuaRealm.Server, Message = "x.lua:1: Tried to use a NULL entity! Entity [123][prop_physics]" };

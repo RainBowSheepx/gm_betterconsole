@@ -51,7 +51,12 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly List<ConsoleEvent> _batch = new(4096);
     private long _appLineId = -1;
     private DateTime _lastLuaStats = DateTime.MinValue;
+    private DateTime _lastFrames = DateTime.MinValue;
+    private DateTime _lastPoll = DateTime.MinValue;
     private bool _helloReceived;
+    // Errors read from the console while the addon was not connected, by EarlyKey. The addon replays
+    // the same errors on connect; those are matched against this and not counted twice.
+    private readonly Dictionary<string, int> _textErrorsOffline = new();
     private ProcessSnapshot? _lastProcess;
 
     public MainViewModel(AppSettings settings)
@@ -134,6 +139,8 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string memText = "—";
     [ObservableProperty] private bool serverIdle;
 
+    private int? _lastExitCode;
+
     public bool IsRunning => State is ServerState.Running or ServerState.Starting or ServerState.Stopping;
     public bool CanStart => State is ServerState.Stopped or ServerState.Crashed;
     public string StateText => State switch
@@ -141,7 +148,7 @@ public sealed partial class MainViewModel : ObservableObject
         ServerState.Running => "Running",
         ServerState.Starting => "Starting",
         ServerState.Stopping => "Stopping",
-        ServerState.Crashed => "Crashed",
+        ServerState.Crashed => _lastExitCode == 0 ? "Exited" : "Crashed",
         _ => "Stopped",
     };
 
@@ -181,8 +188,23 @@ public sealed partial class MainViewModel : ObservableObject
         UpdateBadges();
     }
 
-    private void SendPlayerSubscription() =>
-        Controller.Bridge.Send("sub", new { players = SelectedTab?.Id == "players" });
+    private void SendPlayerSubscription() => Request("sub", new { players = SelectedTab?.Id == "players" });
+
+    /// <summary>
+    /// Sends a request to the addon. A hibernating server runs no frames, so nothing would read it:
+    /// then the hidden console command betterconsole_poll makes Lua answer at once.
+    /// </summary>
+    public void Request(string type, object? data = null)
+    {
+        Controller.Bridge.Send(type, data);
+        if (BridgeConnected && (DateTime.Now - _lastFrames).TotalSeconds > 1.5) Poll();
+    }
+
+    private void Poll()
+    {
+        _lastPoll = DateTime.Now;
+        Controller.TypeInternal("betterconsole_poll");
+    }
 
     private void UpdateBadges()
     {
@@ -280,6 +302,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void OnStateChanged(ServerState old, ServerState now, int? exitCode)
     {
+        _lastExitCode = exitCode;
         State = now;
         if (now is ServerState.Stopped or ServerState.Crashed)
         {
@@ -289,7 +312,11 @@ public sealed partial class MainViewModel : ObservableObject
             UpdateBadges();
             CpuText = InText = OutText = SvText = TickText = LoadText = EntsText = LuaText = MemText = PlayersText = "—";
         }
-        if (now == ServerState.Crashed) Notify($"The server crashed (exit code {ServerController.FormatExitCode(exitCode ?? 0)}).", NotifyKind.Error);
+        if (now == ServerState.Crashed)
+        {
+            if (exitCode == 0) Notify("The server quit by itself (exit code 0).", NotifyKind.Warning);
+            else Notify($"The server crashed (exit code {ServerController.FormatExitCode(exitCode ?? 0)}).", NotifyKind.Error);
+        }
         if (now == ServerState.Starting) Stats.Clear();
         ServerStateChanged?.Invoke(old, now, exitCode);
         UpdateTitle();
@@ -354,7 +381,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (IsRunning && State == ServerState.Running)
         {
             UptimeText = ServerController.FormatSpan(DateTime.Now - Controller.StartedAt);
-            bool idle = BridgeConnected && _helloReceived && (DateTime.Now - _lastLuaStats).TotalSeconds > 3.5;
+            bool idle = BridgeConnected && _helloReceived && (DateTime.Now - _lastFrames).TotalSeconds > 3.5;
             if (idle != ServerIdle)
             {
                 ServerIdle = idle;
@@ -364,6 +391,8 @@ public sealed partial class MainViewModel : ObservableObject
                     SvTooltip = "No server frames for a few seconds: the server is hibernating (no players) or frozen.";
                 }
             }
+            // A sleeping server still reads its console: ask it for a summary every few seconds.
+            if (idle && (DateTime.Now - _lastPoll).TotalSeconds > 5) Poll();
         }
         else UptimeText = "";
     }
@@ -376,6 +405,8 @@ public sealed partial class MainViewModel : ObservableObject
         _helloReceived = false;
         if (!connected)
         {
+            // The replay of the previous offline window has arrived by now.
+            _textErrorsOffline.Clear();
             BridgeText = "Addon: off";
             BridgeTooltip = IsRunning
                 ? "The companion addon is not connected (server still loading, map change, or the addon/module is missing)."
@@ -405,7 +436,7 @@ public sealed partial class MainViewModel : ObservableObject
                 SendPlayerSubscription();
                 // Addons are still loading right after the connection: ask for the command list a bit later.
                 var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-                t.Tick += (_, _) => { t.Stop(); if (BridgeConnected) Controller.Bridge.Send("cmds"); };
+                t.Tick += (_, _) => { t.Stop(); if (BridgeConnected) Request("cmds"); };
                 t.Start();
                 // Lua tabs are sent again by the addon after a reconnect.
                 foreach (var id in LuaTabs.Keys.ToList()) LuaTabRemoved?.Invoke(id);
@@ -474,7 +505,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (id == null) return;
         if (!LuaTabs.TryGetValue(id, out var tab))
         {
-            tab = new LuaTabVm(id) { ActionSink = (t, w, a) => Controller.Bridge.Send("action", new { tab = t, widget = w, id = a }) };
+            tab = new LuaTabVm(id) { ActionSink = (t, w, a) => Request("action", new { tab = t, widget = w, id = a }) };
             LuaTabs[id] = tab;
             tab.Title = StatsVm.Str(m, "title") ?? id;
             var order = StatsVm.Num(m, "order");
@@ -524,18 +555,32 @@ public sealed partial class MainViewModel : ObservableObject
             Player = ply,
             Source = ErrorSource.Bridge,
         };
+        if (m.TryGetProperty("early", out var early) && early.ValueKind == JsonValueKind.True
+            && _textErrorsOffline.TryGetValue(EarlyKey(err), out var seen))
+        {
+            int left = seen - err.Count;
+            if (left > 0) _textErrorsOffline[EarlyKey(err)] = left;
+            else _textErrorsOffline.Remove(EarlyKey(err));
+            if (left >= 0) return;
+            err = err with { Count = -left };
+        }
         AddError(err);
     }
+
+    private static string EarlyKey(LuaError e) => $"{e.Realm}\0{e.Player?.SteamId}\0{e.Message.Trim()}";
 
     private void OnTextError(LuaError e)
     {
         // With the addon connected the same errors arrive through the bridge, with more detail.
         if (BridgeConnected && _helloReceived) return;
+        var key = EarlyKey(e);
+        _textErrorsOffline[key] = _textErrorsOffline.GetValueOrDefault(key) + e.Count;
         AddError(e);
     }
 
     private void AddError(LuaError e)
     {
+        e = ErrorAttribution.Fix(e);
         if (e.Realm == LuaRealm.Client) ClientErrors.Add(e, Settings.MergeSimilarErrors);
         else ServerErrors.Add(e, Settings.MergeSimilarErrors);
         if (SelectedTab?.Id == "server-errors") ServerErrors.UnseenCount = 0;
@@ -567,8 +612,14 @@ public sealed partial class MainViewModel : ObservableObject
     private void OnLuaStats(JsonElement m)
     {
         _lastLuaStats = DateTime.Now;
-        ServerIdle = false;
         Stats.HasLuaStats = true;
+        if (m.TryGetProperty("idle", out var idleFlag) && idleFlag.ValueKind == JsonValueKind.True)
+        {
+            OnIdleStats(m);
+            return;
+        }
+        _lastFrames = DateTime.Now;
+        ServerIdle = false;
         double now = StatsVm.Now();
         double fps = StatsVm.Num(m, "fps"), ft = StatsVm.Num(m, "ft"), ftmax = StatsVm.Num(m, "ftmax"), ftsd = StatsVm.Num(m, "ftsd");
         double busy = StatsVm.Num(m, "busy"), busymax = StatsVm.Num(m, "busymax"), load = StatsVm.Num(m, "load");
@@ -634,6 +685,36 @@ public sealed partial class MainViewModel : ObservableObject
         PublishSnapshot(m);
     }
 
+    /// <summary>The summary of a hibernating server (no frames): only the numbers that still apply.</summary>
+    private void OnIdleStats(JsonElement m)
+    {
+        double players = StatsVm.Num0(m, "players"), bots = StatsVm.Num0(m, "bots"), maxpl = StatsVm.Num0(m, "maxplayers");
+        double ents = StatsVm.Num0(m, "ents"), edicts = StatsVm.Num(m, "edicts"), lua = StatsVm.Num0(m, "lua") / 1024.0;
+        var tr = StatsVm.Num(m, "tickrate");
+        if (!double.IsNaN(tr)) Stats.TickRate = tr;
+        MapText = StatsVm.Str(m, "map") ?? MapText;
+        PlayersText = $"{players:F0}/{maxpl:F0}" + (bots > 0 ? $" +{bots:F0}" : "");
+        EntsText = double.IsNaN(edicts) ? $"{ents:F0}" : $"{ents:F0} ({edicts:F0} ed.)";
+        LuaText = $"{lua:F0} MB";
+        TickText = "0/" + (double.IsNaN(tr) ? "?" : tr.ToString("F0"));
+        LoadText = "0%";
+        InText = OutText = FormatRate(0);
+        SvText = "hibernating";
+        SvTooltip = "The server is empty and hibernating (sv_hibernate_think 0): it runs no frames until a player joins.";
+        Stats.PlayersText = $"{players:F0} / {maxpl:F0}";
+        Stats.EntitiesText = $"{ents:F0}";
+        Stats.EntitiesSub = double.IsNaN(edicts) ? "" : $"{edicts:F0} / 8192 edicts";
+        Stats.LuaText = $"{lua:F1} MB";
+        Stats.FpsText = "0";
+        Stats.FpsSub = "hibernating: no frames";
+        double now = StatsVm.Now();
+        Stats.Players.Add(now, players);
+        Stats.Entities.Add(now, ents);
+        Stats.LuaMB.Add(now, lua);
+        Stats.RaiseUpdated();
+        PublishSnapshot(m);
+    }
+
     private static string FormatRate(double bytesPerSec) =>
         bytesPerSec >= 1024 * 1024 ? $"{bytesPerSec / (1024 * 1024):F1} MB/s" : $"{bytesPerSec / 1024:F1} KB/s";
 
@@ -676,7 +757,7 @@ public sealed partial class MainViewModel : ObservableObject
             Notify("The companion addon is not connected.", NotifyKind.Warning);
             return;
         }
-        Controller.Bridge.Send("prof", new { on });
+        Request("prof", new { on });
     }
 
     public async Task ShutdownAsync()

@@ -21,7 +21,8 @@ public sealed class ServerController : IAsyncDisposable
     private readonly Timer _sampleTimer;
     private readonly List<DateTime> _crashTimes = new();
     private PseudoConsoleProcess? _process;
-    private bool _stopRequested;
+    private volatile bool _stopRequested;
+    private volatile bool _startCancelled;
     private DateTime _startedAt;
     private CancellationTokenSource? _restartCts;
 
@@ -31,6 +32,14 @@ public sealed class ServerController : IAsyncDisposable
         System.Threading.Channels.Channel.CreateUnbounded<(string, bool, string?)>();
     private readonly object _echoLock = new();
     private readonly LinkedList<(string Text, TaskCompletionSource Done)> _echoWaiters = new();
+    // Internal commands queued or waiting for their echo: the same one is not queued twice.
+    private readonly HashSet<string> _internalQueued = new();
+
+    /// <summary>
+    /// How long a typed line may wait for its echo before the next one is typed. While srcds loads a
+    /// map it reads no input at all, and a line typed next to an unread one is lost.
+    /// </summary>
+    private static readonly TimeSpan EchoTimeout = TimeSpan.FromSeconds(30);
 
     public ServerController(ServerProfile profile)
     {
@@ -64,23 +73,44 @@ public sealed class ServerController : IAsyncDisposable
         {
             while (reader.TryRead(out var item))
             {
-                PseudoConsoleProcess? p;
-                lock (_lock) p = _process;
-                if (p == null || p.HasExited) continue;
                 var text = item.Text.TrimEnd();
-                var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                lock (_echoLock) _echoWaiters.AddLast((text, done));
-                Pipeline.ExpectEcho(text, item.Internal, item.Display);
-                p.WriteInput(text + "\r");
-                // Normally the echo comes within a frame; during a map load the input waits.
-                await Task.WhenAny(done.Task, Task.Delay(5000)).ConfigureAwait(false);
-                lock (_echoLock)
+                try
                 {
-                    for (var n = _echoWaiters.First; n != null; n = n.Next)
-                        if (n.Value.Done == done) { _echoWaiters.Remove(n); break; }
+                    PseudoConsoleProcess? p;
+                    lock (_lock) p = _process;
+                    if (p == null || p.HasExited) continue;
+                    var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    lock (_echoLock) _echoWaiters.AddLast((text, done));
+                    Pipeline.ExpectEcho(text, item.Internal, item.Display);
+                    p.WriteInput(text + "\r");
+                    // Normally the echo comes within a frame; during a map load the input waits.
+                    var deadline = DateTime.UtcNow + EchoTimeout;
+                    while (!done.Task.IsCompleted && !p.HasExited && DateTime.UtcNow < deadline)
+                        await Task.WhenAny(done.Task, Task.Delay(250)).ConfigureAwait(false);
+                    lock (_echoLock)
+                    {
+                        for (var n = _echoWaiters.First; n != null; n = n.Next)
+                            if (n.Value.Done == done) { _echoWaiters.Remove(n); break; }
+                    }
+                }
+                finally
+                {
+                    if (item.Internal && item.Display == null) lock (_echoLock) _internalQueued.Remove(text);
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Types a command whose echo stays hidden (BetterConsole's own helpers). Nothing happens while
+    /// the same command still waits in the queue.
+    /// </summary>
+    public void TypeInternal(string command)
+    {
+        command = command.TrimEnd();
+        lock (_lock) if (_process == null) return;
+        lock (_echoLock) if (!_internalQueued.Add(command)) return;
+        Type(command, isInternal: true);
     }
 
     /// <summary>Queues a line for the console input (see <see cref="InputLoop"/>).</summary>
@@ -94,6 +124,7 @@ public sealed class ServerController : IAsyncDisposable
         {
             foreach (var w in _echoWaiters) w.Done.TrySetResult();
             _echoWaiters.Clear();
+            _internalQueued.Clear();
         }
     }
 
@@ -132,7 +163,6 @@ public sealed class ServerController : IAsyncDisposable
         lock (_lock)
         {
             if (State is ServerState.Starting or ServerState.Running or ServerState.Stopping) return;
-            _restartCts?.Cancel();
         }
         var exe = Profile.ResolveExecutable();
         if (exe == null)
@@ -142,8 +172,18 @@ public sealed class ServerController : IAsyncDisposable
                 : $"No srcds_console.exe / srcds_console_win64.exe in \"{Profile.ServerDirectory}\".", true);
             return;
         }
+        // Checked and set under one lock: two quick starts must not run two servers.
+        ServerState old;
+        lock (_lock)
+        {
+            if (State is ServerState.Starting or ServerState.Running or ServerState.Stopping) return;
+            _restartCts?.Cancel();
+            old = State;
+            State = ServerState.Starting;
+            _startCancelled = false;
+        }
+        StateChanged?.Invoke(old, ServerState.Starting, null);
         ExecutablePath = exe;
-        SetState(ServerState.Starting);
         try
         {
             if (BeforeStart != null) await BeforeStart(Profile, exe).ConfigureAwait(false);
@@ -151,6 +191,12 @@ public sealed class ServerController : IAsyncDisposable
         catch (Exception ex)
         {
             Notice?.Invoke("Could not prepare the server: " + ex.Message, true);
+            SetState(ServerState.Stopped);
+            return;
+        }
+        if (_startCancelled)
+        {
+            Notice?.Invoke("Start cancelled.", false);
             SetState(ServerState.Stopped);
             return;
         }
@@ -187,7 +233,13 @@ public sealed class ServerController : IAsyncDisposable
             if (_process != p) return;
             _process = null;
         }
-        p.Dispose();
+        // Closing the pseudo console can take a moment; the new state is reported first.
+        try { Exited(code); }
+        finally { p.Dispose(); }
+    }
+
+    private void Exited(int code)
+    {
         var uptime = DateTime.Now - _startedAt;
         if (_stopRequested)
         {
@@ -196,7 +248,11 @@ public sealed class ServerController : IAsyncDisposable
             return;
         }
 
-        Notice?.Invoke($"Server exited unexpectedly with code {FormatExitCode(code)} after {FormatSpan(uptime)}.", true);
+        // Exit code 0 is a "quit" from somewhere else (an addon, rcon): restarted like a crash, as a
+        // restart script would.
+        Notice?.Invoke(code == 0
+            ? $"The server quit by itself after {FormatSpan(uptime)} (exit code 0)."
+            : $"Server exited unexpectedly with code {FormatExitCode(code)} after {FormatSpan(uptime)}.", code != 0);
         SetState(ServerState.Crashed, code);
         if (!Profile.AutoRestart) return;
 
@@ -234,9 +290,21 @@ public sealed class ServerController : IAsyncDisposable
         }
         if (p == null)
         {
-            // Nothing runs; a crashed server waiting for its auto-restart just stays down.
-            if (State == ServerState.Crashed) SetState(ServerState.Stopped);
-            return;
+            if (State == ServerState.Starting)
+            {
+                // Still preparing (installing the companion): StartAsync stops there.
+                _startCancelled = true;
+                var startDeadline = DateTime.UtcNow.AddSeconds(10);
+                while (State == ServerState.Starting && DateTime.UtcNow < startDeadline) await Task.Delay(50).ConfigureAwait(false);
+                lock (_lock) p = _process;
+                if (p == null) return;
+            }
+            else
+            {
+                // Nothing runs; a crashed server waiting for its auto-restart just stays down.
+                if (State == ServerState.Crashed) SetState(ServerState.Stopped);
+                return;
+            }
         }
         _stopRequested = true;
         SetState(ServerState.Stopping);
@@ -296,6 +364,13 @@ public sealed class ServerController : IAsyncDisposable
         }
         if (ascii && command.Length < 250)
         {
+            // "quit" typed here is a stop, not a crash to restart from.
+            var verb = command.Split(' ', 2)[0];
+            if (verb.Equals("quit", StringComparison.OrdinalIgnoreCase) || verb.Equals("exit", StringComparison.OrdinalIgnoreCase))
+            {
+                lock (_lock) _restartCts?.Cancel();
+                _stopRequested = true;
+            }
             Type(command, isInternal: false);
             return true;
         }

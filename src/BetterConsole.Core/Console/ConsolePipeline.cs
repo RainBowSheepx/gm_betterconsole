@@ -129,11 +129,17 @@ public sealed class ConsolePipeline : IDisposable
                     Feed(chunk.Data);
                 }
                 // A finished line clears the preview at once; an unfinished one is shown after a pause.
+                // A preview already on screen follows the line it shows (or the next one) right away.
                 var preview = _assembler.Preview(_terminal);
-                if (preview == null && _lastPreview != null)
+                if (_lastPreview != null && preview?.Text != _lastPreview)
                 {
-                    _lastPreview = null;
-                    Emit(new PreviewChanged(null));
+                    _lastPreview = preview?.Text;
+                    Emit(new PreviewChanged(preview == null ? null : new ConsoleLine
+                    {
+                        Text = preview.Value.Text,
+                        Spans = preview.Value.Spans,
+                        Time = _chunkTime,
+                    }));
                 }
             }
             else if ((DateTime.Now - _lastData).TotalMilliseconds > 120)

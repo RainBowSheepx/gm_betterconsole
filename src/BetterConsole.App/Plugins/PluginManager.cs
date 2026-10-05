@@ -227,7 +227,7 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
     public bool IsConnected => _vm.BridgeConnected;
     public event EventHandler<bool>? ConnectionChanged;
     public event EventHandler<BridgeMessage>? MessageReceived;
-    public void Send(string type, object? data = null) => _vm.Controller.Bridge.Send("custom", new { type, data });
+    public void Send(string type, object? data = null) => _vm.Request("custom", new { type, data });
 
     // IUiHost
     public void AddTab(string id, string header, Func<FrameworkElement> content, int order = 1000) =>

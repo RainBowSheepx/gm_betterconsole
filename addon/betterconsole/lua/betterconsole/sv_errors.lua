@@ -17,19 +17,27 @@ local early = {}        -- payloads from before the connection
 local inHandler = false -- an error inside our handler must not recurse
 
 local function Frames(stack)
-	local out = {}
-	if not istable(stack) then return out end
+	local all, others = {}, {}
+	if not istable(stack) then return all end
 	for _, f in ipairs(stack) do
-		-- The profiler's and the timer detour's wrappers are not part of anybody's bug.
-		if istable(f) and not tostring(f.File or ""):find("betterconsole/sv_", 1, true) then
-			out[#out + 1] = {
+		if istable(f) then
+			local frame = {
 				fn = (f.Function ~= nil and f.Function ~= "") and tostring(f.Function) or "unknown",
 				src = tostring(f.File or f.short_src or f.source or "?"),
 				line = tonumber(f.Line or f.currentline or f.line) or 0,
 			}
+			all[#all + 1] = frame
+			-- The profiler's and the timer detour's wrappers are not part of anybody's bug.
+			if not frame.src:find("betterconsole/sv_", 1, true) then others[#others + 1] = frame end
 		end
 	end
-	return out
+	-- Unless the bug is ours (the innermost Lua frame is ours): then the whole stack stays.
+	for _, frame in ipairs(all) do
+		if frame.src ~= "[C]" then
+			return frame.src:find("betterconsole/", 1, true) and all or others
+		end
+	end
+	return others
 end
 
 local function Key(prefix, err, frames)
@@ -45,6 +53,9 @@ local function Deliver(msg)
 	if BC.Connected then
 		BC.Emit(msg)
 	elseif #early < 200 then
+		-- The app has probably read this one from the console output already; it uses the flag to
+		-- tell the replay from a new error.
+		msg.early = true
 		early[#early + 1] = msg
 	end
 end

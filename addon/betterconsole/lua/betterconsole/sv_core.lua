@@ -4,6 +4,10 @@ BetterConsole companion addon - transport.
 Messages are JSON objects with a "t" (type) field, one per line, sent through gmsv_betterconsole's named
 pipe. The module does the I/O on its own thread; here we only encode, decode and dispatch. Incoming
 messages are polled every frame (Receive returns nothing when the inbox is empty).
+
+An empty server hibernates (sv_hibernate_think 0): no Think, no timers. The console input is still read
+then, so BetterConsole types the hidden command betterconsole_poll to get its requests answered and a
+short summary of the sleeping server.
 ]]
 local BC = BetterConsole
 local N = BC.Native
@@ -86,9 +90,21 @@ end
 
 BC.On("action", BC.HandleAction)
 BC.On("custom", function(msg) hook.Run("BetterConsoleMessage", msg.type, msg.data) end)
+local polling = false
 BC.On("exec", function(msg)
-	if isstring(msg.cmd) then N.ServerCommand(msg.cmd, true) end
+	-- Inside betterconsole_poll the engine is already executing commands: only queue it then.
+	if isstring(msg.cmd) then N.ServerCommand(msg.cmd, not polling) end
 end)
+
+concommand.Add("betterconsole_poll", function(ply)
+	if IsValid(ply) then return end
+	nextCheck = 0
+	polling = true
+	local ok, err = pcall(Think)
+	polling = false
+	if not ok then ErrorNoHalt("[BetterConsole] poll failed: " .. tostring(err) .. "\n") end
+	if BC.IdleSummary then BC.IdleSummary() end
+end, nil, "Used by BetterConsole while the server hibernates. Not for manual use.", FCVAR_DONTRECORD)
 
 function BC.Start()
 	-- Not a return value: a Think hook that returns something stops the hooks after it.

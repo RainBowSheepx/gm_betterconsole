@@ -3,6 +3,30 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.1.2 - 2026-10-06
+
+- **Works while the server hibernates.** An empty server with `sv_hibernate_think 0` runs no Lua,
+  so auto-completion, statistics and addon tabs used to wait for the first player. BetterConsole now
+  wakes the addon through a hidden console command; the status bar shows *hibernating*.
+- **Fixed: the window could freeze (one CPU core at 100%)** when a line wider than the console
+  scrolled in and out of view while the console followed the output.
+- **Fixed: with the Lua profiler on, `net.Send` to a single player failed** (in Sandbox and
+  derived gamemodes). Net message accounting can no longer break a send.
+- **Errors in timers are no longer blamed on BetterConsole.** The engine names the addon of the
+  outermost function, which under the timer detour is the companion's wrapper; the error now gets
+  the addon of the code that failed. Errors of code run with `lua_run` inside such a timer are
+  recognised in the console text too.
+- Lua errors from the server start-up are no longer counted twice.
+- An `[ERROR] ...` line that an addon prints itself (no Lua location, no stack) stays in the console
+  instead of being taken for a Lua error together with the lines after it.
+- *Timer Failed!* lines name the timer's real function, not the profiler's wrapper.
+- Commands typed while srcds loads a map wait for it instead of being dropped.
+- `quit` / `exit` typed in the console stop the server (no auto-restart). A server that quits by
+  itself with exit code 0 is shown as *Exited*, not as a crash.
+- Stop works while the server is still starting; two quick starts no longer start two servers.
+- The companion addon install reports files it may not write instead of cancelling the start.
+- The live preview of an unfinished line follows the output right away.
+
 ## v0.1.1 - 2026-10-06
 
 - **Fixed: commands sent quickly one after another were lost.** srcds reads all pending console

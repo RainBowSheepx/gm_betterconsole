@@ -31,6 +31,38 @@ public sealed record LuaError
 
 public enum ErrorSource { Bridge, ConsoleText }
 
+public static partial class ErrorAttribution
+{
+    /// <summary>The folder the companion addon is installed to, which the engine uses as its title.</summary>
+    public const string CompanionAddon = "betterconsole";
+
+    /// <summary>
+    /// The engine names the addon of the outermost Lua function of a call. Under the companion's timer
+    /// detour and profiler that is the companion's wrapper, so errors of other addons' timers and hooks
+    /// come "from betterconsole". Those are given the addon of the code that failed (from its path)
+    /// or none.
+    /// </summary>
+    public static LuaError Fix(LuaError e)
+    {
+        if (!string.Equals(e.AddonTitle, CompanionAddon, StringComparison.OrdinalIgnoreCase)) return e;
+        if (e.Stack.Any(f => f.Source.Contains("addons/" + CompanionAddon + "/", StringComparison.OrdinalIgnoreCase))) return e;
+        string? addon = null;
+        foreach (var f in e.Stack)
+        {
+            var m = AddonPath().Match(f.Source);
+            if (m.Success)
+            {
+                addon = m.Groups[1].Value;
+                break;
+            }
+        }
+        return e with { AddonTitle = addon, WorkshopId = null };
+    }
+
+    [GeneratedRegex(@"^(?:@)?addons/([^/]+)/", RegexOptions.IgnoreCase)]
+    private static partial Regex AddonPath();
+}
+
 public sealed record PlayerRef(string Name, string SteamId, string SteamId64, int UserId)
 {
     /// <summary>The key client errors are grouped by.</summary>

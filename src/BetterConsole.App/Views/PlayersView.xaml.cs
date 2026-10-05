@@ -295,7 +295,7 @@ public partial class PlayersView : UserControl
         }
         else
         {
-            _vm.Controller.Bridge.Send("setgroup", new { sid = p.SteamId, uid = p.UserId, group });
+            _vm.Request("setgroup", new { sid = p.SteamId, uid = p.UserId, group });
             _vm.Notify($"{p.Name} is now in \"{group}\" until he leaves (no ULX to save it).", NotifyKind.Info);
         }
     }

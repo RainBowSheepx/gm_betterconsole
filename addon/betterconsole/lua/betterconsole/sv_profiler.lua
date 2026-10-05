@@ -205,12 +205,28 @@ local function WrapReceiver(name, fn)
 	return w
 end
 
-local function CountSend(recipients)
-	if not sending then return end
-	local bytes = net.BytesWritten and net.BytesWritten() or 0
-	Add("netout", sending, 0, bytes * math.max(recipients, 1))
-	sending = nil
+-- How many players a net.Send / SendOmit target stands for: a player, a list of players or a
+-- CRecipientFilter. Player has a GetCount too (Sandbox's limit counter), so check the type first.
+local function Recipients(target)
+	if istable(target) then return #target end
+	if type(target) == "CRecipientFilter" then return target:GetCount() end
+	return IsValid(target) and 1 or 0
 end
+
+-- Accounting must never get in the way of the real send.
+local function CountSend(fn, ...)
+	if not sending then return end
+	local name = sending
+	sending = nil
+	local ok, recipients = pcall(fn, ...)
+	if not ok then return end
+	local bytes = net.BytesWritten and net.BytesWritten() or 0
+	Add("netout", name, 0, bytes * math.max(recipients, 1))
+end
+
+local function Omitted(target) return player.GetCount() - Recipients(target) end
+local function Everyone() return player.GetCount() end
+local function One() return 1 end
 
 local function InstallNet()
 	for name, fn in pairs(net.Receivers) do
@@ -228,19 +244,19 @@ local function InstallNet()
 		return origStart(name, unreliable)
 	end
 	net.Send = function(ply)
-		CountSend(istable(ply) and #ply or (ply and ply.GetCount and ply:GetCount()) or 1)
+		CountSend(Recipients, ply)
 		return origSend(ply)
 	end
 	net.Broadcast = function()
-		CountSend(player.GetCount())
+		CountSend(Everyone)
 		return origBroadcast()
 	end
 	net.SendOmit = function(ply)
-		CountSend(player.GetCount() - (istable(ply) and #ply or 1))
+		CountSend(Omitted, ply)
 		return origOmit(ply)
 	end
-	net.SendPAS = function(pos) CountSend(1) return origPAS(pos) end
-	net.SendPVS = function(pos) CountSend(1) return origPVS(pos) end
+	net.SendPAS = function(pos) CountSend(One) return origPAS(pos) end
+	net.SendPVS = function(pos) CountSend(One) return origPVS(pos) end
 end
 
 local function RemoveNet()

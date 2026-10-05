@@ -76,9 +76,13 @@ internal sealed class LineAssembler : ITerminalListener
         {
             var row = t.GetRow(r);
             if (!row.Dirty) continue;
-            row.Dirty = false;
-            if (row.Tag is not LineRecord { Reported: true }) continue;
+            if (row.Tag is not LineRecord { Reported: true })
+            {
+                row.Dirty = false;
+                continue;
+            }
             // Only rows above the cursor are finished; the cursor row is reported by its line feed.
+            // A reported line the cursor went back to stays dirty until the cursor has left it.
             int start = r, end = r;
             while (start > 0 && t.GetRow(start - 1).Wrapped) start--;
             while (end < t.Height - 1 && t.GetRow(end).Wrapped) end++;

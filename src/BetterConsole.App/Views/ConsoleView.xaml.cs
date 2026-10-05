@@ -75,6 +75,7 @@ public partial class ConsoleView : UserControl
         Output.TextArea.TextView.ScrollOffsetChanged += OnScrollChanged;
         // A horizontal scroll bar appearing (or a resize) shrinks the view: stay at the end.
         Output.TextArea.TextView.SizeChanged += (_, _) => { if (_follow) Output.ScrollToEnd(); };
+        Output.TextArea.TextView.VisualLinesChanged += (_, _) => KeepHorizontalBar();
         Output.PreviewMouseWheel += (_, e) => { if (e.Delta > 0) MarkUserScroll(); };
         Output.PreviewKeyDown += (_, e) => { if (e.Key is Key.Up or Key.PageUp or Key.Home) MarkUserScroll(); };
         Output.TextArea.PreviewMouseLeftButtonDown += (_, _) => MarkUserScroll();
@@ -88,6 +89,7 @@ public partial class ConsoleView : UserControl
 
         WrapToggle.IsChecked = s.ConsoleWordWrap;
         Output.WordWrap = s.ConsoleWordWrap;
+        ResetHorizontalBar();
         TimeToggle.IsChecked = s.ConsoleTimestamps;
         _timeMargin.Visibility = s.ConsoleTimestamps ? Visibility.Visible : Visibility.Collapsed;
 
@@ -239,9 +241,26 @@ public partial class ConsoleView : UserControl
         _preview = null;
         _newWhileAway = 0;
         _follow = true;
+        ResetHorizontalBar();
         UpdateJumpButton();
         UpdateCount();
     }
+
+    /// <summary>
+    /// AvalonEdit measures only the lines in view, so an automatic horizontal scroll bar comes and goes as
+    /// long lines scroll in and out. Following the end turns that into a layout loop: the bar shrinks the
+    /// view, the view scrolls to the end, the long line leaves it, the bar goes, the view grows, and again.
+    /// Once a line was wider than the view the bar stays.
+    /// </summary>
+    private void KeepHorizontalBar()
+    {
+        if (Output.WordWrap || Output.HorizontalScrollBarVisibility == ScrollBarVisibility.Visible) return;
+        var tv = (IScrollInfo)Output.TextArea.TextView;
+        if (tv.ExtentWidth > tv.ViewportWidth + 0.5) Output.HorizontalScrollBarVisibility = ScrollBarVisibility.Visible;
+    }
+
+    private void ResetHorizontalBar() =>
+        Output.HorizontalScrollBarVisibility = Output.WordWrap ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
 
     private void UpdateCount()
     {
@@ -312,6 +331,7 @@ public partial class ConsoleView : UserControl
         if (_doc == null) return;
         Output.WordWrap = WrapToggle.IsChecked == true;
         _vm.Settings.ConsoleWordWrap = Output.WordWrap;
+        ResetHorizontalBar();
     }
 
     private void OnTimeChanged(object sender, RoutedEventArgs e)
@@ -566,7 +586,7 @@ public partial class ConsoleView : UserControl
     {
         if (!_vm.BridgeConnected || _suggestions.Count == 0) return;
         var names = _suggestions.Where(s => s.Kind == CommandKind.Variable).Take(20).Select(s => s.Name).ToArray();
-        if (names.Length > 0) _vm.Controller.Bridge.Send("cvals", new { names });
+        if (names.Length > 0) _vm.Request("cvals", new { names });
     }
 }
 

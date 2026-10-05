@@ -32,7 +32,8 @@ internal sealed class PendingCommands
         lock (_lock)
         {
             var now = DateTime.UtcNow;
-            while (_pending.First is { } first && (now - first.Value.At).TotalSeconds > 10) _pending.RemoveFirst();
+            // Longer than the input queue waits for an echo (ServerController.EchoTimeout).
+            while (_pending.First is { } first && (now - first.Value.At).TotalSeconds > 60) _pending.RemoveFirst();
             if (_pending.Count == 0) return false;
             string text = line.TrimEnd();
             for (var node = _pending.First; node != null; node = node.Next)
