@@ -3,6 +3,15 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.1.1 - 2026-10-06
+
+- **Fixed: commands sent quickly one after another were lost.** srcds reads all pending console
+  input at once, runs the first line and drops the rest; commands are now typed one at a time, each
+  after srcds took the previous one. This affected plugins, quick buttons and *Ban* without ULX
+  (`banid` + `writeid`).
+- The echo of commands with non-ASCII text now appears exactly where the command ran.
+- The console keeps following the output when a horizontal scroll bar appears.
+
 ## v0.1.0 - 2026-10-06
 
 First public version.

@@ -213,11 +213,17 @@ internal sealed partial class OutputClassifier
             _clientHead = null;
         }
 
-        if (_commands.TryMatchEcho(text, out bool internalCommand))
+        if (_commands.TryMatchEcho(text, out bool internalCommand, out var display))
         {
             ReleaseHeldBlank();
             if (internalCommand)
             {
+                if (display != null)
+                {
+                    // The transport line of a non-ASCII command: show what the user typed instead.
+                    Show(id, new ConsoleLine { Text = display, Time = line.Time, Kind = ConsoleLineKind.Command });
+                    return;
+                }
                 HideAlways(id);
                 return;
             }

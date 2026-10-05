@@ -25,6 +25,13 @@ public sealed class ServerController : IAsyncDisposable
     private DateTime _startedAt;
     private CancellationTokenSource? _restartCts;
 
+    // srcds reads all pending console input in a frame, takes the first line and drops the rest:
+    // lines are typed one at a time, the next one after srcds echoed the previous one.
+    private readonly System.Threading.Channels.Channel<(string Text, bool Internal, string? Display)> _input =
+        System.Threading.Channels.Channel.CreateUnbounded<(string, bool, string?)>();
+    private readonly object _echoLock = new();
+    private readonly LinkedList<(string Text, TaskCompletionSource Done)> _echoWaiters = new();
+
     public ServerController(ServerProfile profile)
     {
         Profile = profile;
@@ -32,6 +39,62 @@ public sealed class ServerController : IAsyncDisposable
         Bridge = new BridgeServer();
         Bridge.Start();
         _sampleTimer = new Timer(_ => Sample(), null, 1000, 1000);
+        Pipeline.EchoMatched += OnEcho;
+        _ = Task.Run(InputLoop);
+    }
+
+    private void OnEcho(string text)
+    {
+        lock (_echoLock)
+        {
+            for (var n = _echoWaiters.First; n != null; n = n.Next)
+            {
+                if (n.Value.Text != text) continue;
+                n.Value.Done.TrySetResult();
+                _echoWaiters.Remove(n);
+                return;
+            }
+        }
+    }
+
+    private async Task InputLoop()
+    {
+        var reader = _input.Reader;
+        while (await reader.WaitToReadAsync().ConfigureAwait(false))
+        {
+            while (reader.TryRead(out var item))
+            {
+                PseudoConsoleProcess? p;
+                lock (_lock) p = _process;
+                if (p == null || p.HasExited) continue;
+                var text = item.Text.TrimEnd();
+                var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                lock (_echoLock) _echoWaiters.AddLast((text, done));
+                Pipeline.ExpectEcho(text, item.Internal, item.Display);
+                p.WriteInput(text + "\r");
+                // Normally the echo comes within a frame; during a map load the input waits.
+                await Task.WhenAny(done.Task, Task.Delay(5000)).ConfigureAwait(false);
+                lock (_echoLock)
+                {
+                    for (var n = _echoWaiters.First; n != null; n = n.Next)
+                        if (n.Value.Done == done) { _echoWaiters.Remove(n); break; }
+                }
+            }
+        }
+    }
+
+    /// <summary>Queues a line for the console input (see <see cref="InputLoop"/>).</summary>
+    private void Type(string text, bool isInternal, string? display = null) => _input.Writer.TryWrite((text, isInternal, display));
+
+    /// <summary>A new process: drop what was typed for the old one.</summary>
+    private void ClearInput()
+    {
+        while (_input.Reader.TryRead(out _)) { }
+        lock (_echoLock)
+        {
+            foreach (var w in _echoWaiters) w.Done.TrySetResult();
+            _echoWaiters.Clear();
+        }
     }
 
     public ServerProfile Profile { get; set; }
@@ -47,6 +110,8 @@ public sealed class ServerController : IAsyncDisposable
 
     public event Action<ServerState, ServerState, int?>? StateChanged;
     public event Action<ProcessSnapshot>? Sampled;
+    /// <summary>A command that srcds does not echo (it went through the pipe): show it yourself.</summary>
+    public event Action<string>? CommandEcho;
     /// <summary>A notice for the console tab (server started, crashed, ...). The bool marks an error.</summary>
     public event Action<string, bool>? Notice;
 
@@ -92,6 +157,7 @@ public sealed class ServerController : IAsyncDisposable
 
         Pipeline.Reset();
         _sampler.Reset();
+        ClearInput();
         _stopRequested = false;
         var args = Profile.Arguments ?? "";
         if (!args.Contains("-console", StringComparison.OrdinalIgnoreCase)) args = "-console " + args;
@@ -174,8 +240,7 @@ public sealed class ServerController : IAsyncDisposable
         }
         _stopRequested = true;
         SetState(ServerState.Stopping);
-        Pipeline.ExpectEcho("quit", isInternal: false);
-        p.WriteInput("quit\r");
+        Type("quit", isInternal: false);
         var deadline = DateTime.UtcNow.AddSeconds(Math.Clamp(Profile.StopTimeoutSeconds, 3, 300));
         while (!p.HasExited && DateTime.UtcNow < deadline) await Task.Delay(100).ConfigureAwait(false);
         if (!p.HasExited)
@@ -231,8 +296,7 @@ public sealed class ServerController : IAsyncDisposable
         }
         if (ascii && command.Length < 250)
         {
-            Pipeline.ExpectEcho(command, isInternal: false);
-            p.WriteInput(command + "\r");
+            Type(command, isInternal: false);
             return true;
         }
 
@@ -247,13 +311,14 @@ public sealed class ServerController : IAsyncDisposable
         var line = "betterconsole_exec " + hex;
         if (line.Length < 250)
         {
-            Pipeline.ExpectEcho(line, isInternal: true);
-            p.WriteInput(line + "\r");
+            Type(line, isInternal: true, display: command);
         }
         else
         {
             // Too long for the console input line: through the pipe (runs on the next frame).
+            // srcds echoes nothing for it, so the echo is ours.
             Bridge.Send("exec", new { cmd = command });
+            CommandEcho?.Invoke(command);
         }
         return true;
     }

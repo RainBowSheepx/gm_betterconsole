@@ -65,6 +65,8 @@ public sealed partial class MainViewModel : ObservableObject
         Controller.Pipeline.HideErrors = settings.HideErrorsInConsole;
         Controller.StateChanged += (o, n, code) => _uiActions.Enqueue(() => OnStateChanged(o, n, code));
         Controller.Notice += (text, isError) => WriteAppLine(text, isError);
+        Controller.CommandEcho += text => _appLines.Enqueue(new LineAdded(Interlocked.Decrement(ref _appLineId),
+            new ConsoleLine { Text = text, Time = DateTime.Now, Kind = ConsoleLineKind.Command }));
         Controller.Sampled += s => _uiActions.Enqueue(() => OnProcessSample(s));
         Controller.Bridge.ConnectionChanged += c => _uiActions.Enqueue(() => OnBridgeConnection(c));
         Controller.Bridge.MessageReceived += (t, m) => _bridgeQueue.Enqueue((t, m));
@@ -245,13 +247,6 @@ public sealed partial class MainViewModel : ObservableObject
         {
             WriteAppLine(problem ?? "The command could not be sent.", true);
             return false;
-        }
-        bool ascii = text.All(c => c >= 0x20 && c <= 0x7E);
-        if (!ascii || text.Length >= 250)
-        {
-            // Sent through the companion addon: srcds does not echo it, so we do.
-            _appLines.Enqueue(new LineAdded(Interlocked.Decrement(ref _appLineId),
-                new ConsoleLine { Text = text, Time = DateTime.Now, Kind = ConsoleLineKind.Command }));
         }
         return true;
     }

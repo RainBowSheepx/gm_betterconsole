@@ -134,6 +134,18 @@ public class ClassifierTests
     }
 
     [Fact]
+    public void TransportCommandIsShownAsWhatTheUserTyped()
+    {
+        var h = new Harness();
+        h.Commands.Add("betterconsole_exec 736179", isInternal: true, display: "say Привет");
+        h.Feed("betterconsole_exec 736179", "Console: Привет");
+        h.Settle();
+        var added = h.Events.OfType<LineAdded>().ToList();
+        Assert.Equal(["say Привет", "Console: Привет"], added.Select(a => a.Line.Text));
+        Assert.Equal(ConsoleLineKind.Command, added[0].Line.Kind);
+    }
+
+    [Fact]
     public void ErrorsCanStayVisible()
     {
         var h = new Harness();

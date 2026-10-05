@@ -63,7 +63,14 @@ public sealed class ConsolePipeline : IDisposable
     }
 
     /// <summary>Remembers a command we are about to type so its echo can be recognised.</summary>
-    public void ExpectEcho(string command, bool isInternal) => _commands.Add(command, isInternal);
+    public void ExpectEcho(string command, bool isInternal, string? display = null) => _commands.Add(command, isInternal, display);
+
+    /// <summary>srcds echoed a typed command, i.e. it has read that input line (pipeline thread).</summary>
+    public event Action<string>? EchoMatched
+    {
+        add => _commands.EchoMatched += value;
+        remove => _commands.EchoMatched -= value;
+    }
 
     /// <summary>Starts from a clean screen (a new server process).</summary>
     public void Reset() => _resetRequested = true;
