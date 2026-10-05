@@ -1,0 +1,287 @@
+<UserControl x:Class="BetterConsole.App.Views.StatsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:BetterConsole.App.Controls">
+    <UserControl.Resources>
+        <Style x:Key="Kpi" TargetType="Border" BasedOn="{StaticResource Card}">
+            <Setter Property="Margin" Value="0,0,10,10" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="MinWidth" Value="170" />
+        </Style>
+        <Style x:Key="KpiLabel" TargetType="TextBlock" BasedOn="{StaticResource Text.Section}">
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+        <Style x:Key="KpiValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+        </Style>
+        <Style x:Key="KpiSub" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.TextMuted}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style x:Key="ChartCard" TargetType="Border" BasedOn="{StaticResource Card}">
+            <Setter Property="Margin" Value="0,0,10,10" />
+            <Setter Property="Padding" Value="12,10,12,8" />
+            <Setter Property="Height" Value="210" />
+        </Style>
+        <Style x:Key="ProfGrid" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+            <Setter Property="RowHeight" Value="26" />
+            <Setter Property="MaxHeight" Value="330" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="CanUserSortColumns" Value="True" />
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="12,8,2,10">
+        <StackPanel x:Name="Root">
+            <!-- toolbar -->
+            <DockPanel Margin="0,0,10,10">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                    <TextBlock Text="Window" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ToggleButton x:Name="W1" Content="1 min" Style="{StaticResource Toggle.Ghost}" Click="OnWindow" Tag="1" />
+                    <ToggleButton x:Name="W5" Content="5 min" Style="{StaticResource Toggle.Ghost}" Click="OnWindow" Tag="5" />
+                    <ToggleButton x:Name="W15" Content="15 min" Style="{StaticResource Toggle.Ghost}" Click="OnWindow" Tag="15" />
+                    <ToggleButton x:Name="W60" Content="1 hour" Style="{StaticResource Toggle.Ghost}" Click="OnWindow" Tag="60" />
+                </StackPanel>
+                <TextBlock x:Name="Note" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" />
+            </DockPanel>
+
+            <!-- key numbers -->
+            <WrapPanel>
+                <Border Style="{StaticResource Kpi}" ToolTip="Server frames per second and the standard deviation of the frame time (net_graph's &quot;sv&quot;)">
+                    <StackPanel>
+                        <TextBlock Text="SERVER FPS" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.FpsText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.FpsSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}" ToolTip="Time between frames; should stay at the tick interval">
+                    <StackPanel>
+                        <TextBlock Text="FRAME TIME" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.FrameText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.FrameSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}" ToolTip="Share of the time the game thread was busy (CPU time of the thread measured by the native module). Near 100 % the server cannot keep its tick rate.">
+                    <StackPanel>
+                        <TextBlock Text="GAME THREAD LOAD" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.LoadText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.LoadSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}">
+                    <StackPanel>
+                        <TextBlock Text="TICKS / SECOND" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.TickText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.TickSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}" ToolTip="CPU time of the srcds process like the engine's &quot;stats&quot; command (100 % = one core)">
+                    <StackPanel>
+                        <TextBlock Text="CPU (STATS)" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.CpuText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.CpuSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}">
+                    <StackPanel>
+                        <TextBlock Text="MEMORY" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.MemoryText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.MemorySub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}">
+                    <StackPanel>
+                        <TextBlock Text="LUA MEMORY" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.LuaText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.LuaSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}">
+                    <StackPanel>
+                        <TextBlock Text="PLAYERS" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.PlayersText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.PlayersSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}" ToolTip="Edicts are limited to 8192; the server crashes when it runs out">
+                    <StackPanel>
+                        <TextBlock Text="ENTITIES" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.EntitiesText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.EntitiesSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}">
+                    <StackPanel>
+                        <TextBlock Text="NETWORK" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.NetText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.NetSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Kpi}">
+                    <StackPanel>
+                        <TextBlock Text="UPTIME" Style="{StaticResource KpiLabel}" />
+                        <TextBlock Text="{Binding Stats.UptimeText}" Style="{StaticResource KpiValue}" />
+                        <TextBlock Text="{Binding Stats.UptimeSub}" Style="{StaticResource KpiSub}" />
+                    </StackPanel>
+                </Border>
+            </WrapPanel>
+
+            <!-- charts -->
+            <Grid x:Name="Charts">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="0" Grid.Column="0">
+                    <c:TimeSeriesChart x:Name="FrameChart" Title="Frame time" Unit="ms" Decimals="1" MinimumMax="20" />
+                </Border>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="0" Grid.Column="1">
+                    <c:TimeSeriesChart x:Name="LoadChart" Title="Load" Unit="%" Decimals="0" MinimumMax="20" />
+                </Border>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="1" Grid.Column="0">
+                    <c:TimeSeriesChart x:Name="FpsChart" Title="Rate" Unit="/s" Decimals="1" MinimumMax="10" />
+                </Border>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="1" Grid.Column="1">
+                    <c:TimeSeriesChart x:Name="MemChart" Title="Memory" Unit="MB" Decimals="0" MinimumMax="64" />
+                </Border>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="2" Grid.Column="0">
+                    <c:TimeSeriesChart x:Name="NetChart" Title="Network" Unit="KB/s" Decimals="1" MinimumMax="4" />
+                </Border>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="2" Grid.Column="1">
+                    <c:TimeSeriesChart x:Name="PlayersChart" Title="Players" Decimals="0" MinimumMax="4" />
+                </Border>
+                <Border Style="{StaticResource ChartCard}" Grid.Row="3" Grid.Column="0">
+                    <c:TimeSeriesChart x:Name="EntsChart" Title="Entities" Decimals="0" MinimumMax="100" />
+                </Border>
+                <!-- long frames -->
+                <Border Style="{StaticResource ChartCard}" Grid.Row="3" Grid.Column="1">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="Lag spikes (frames longer than 3 ticks)" Style="{StaticResource Text.Title}" FontSize="12.5" Margin="2,0,0,6" />
+                        <Grid>
+                            <ItemsControl x:Name="SpikeList" ItemsSource="{Binding Stats.Spikes}">
+                                <ItemsControl.Template>
+                                    <ControlTemplate>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter />
+                                        </ScrollViewer>
+                                    </ControlTemplate>
+                                </ItemsControl.Template>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="2,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="70" />
+                                                <ColumnDefinition Width="70" />
+                                                <ColumnDefinition Width="90" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding TimeText}" FontFamily="{StaticResource Font.Mono}" FontSize="12" Foreground="{DynamicResource Brush.TextMuted}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding MsText}" FontFamily="{StaticResource Font.Mono}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" />
+                                            <TextBlock Grid.Column="2" Text="{Binding BusyText}" FontFamily="{StaticResource Font.Mono}" FontSize="12" Foreground="{DynamicResource Brush.TextSecondary}" />
+                                            <TextBlock Grid.Column="3" Text="{Binding Hint}" FontSize="11.5" Foreground="{DynamicResource Brush.TextMuted}" TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="NoSpikes" Text="No lag spikes so far." Style="{StaticResource Text.Muted}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                        </Grid>
+                    </DockPanel>
+                </Border>
+            </Grid>
+
+            <!-- profiler -->
+            <Border Style="{StaticResource Card}" Margin="0,0,10,10">
+                <StackPanel>
+                    <DockPanel>
+                        <Button x:Name="ProfButton" DockPanel.Dock="Right" Style="{StaticResource Btn.Primary}" Click="OnProfile" Padding="14,6">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock x:Name="ProfIcon" Style="{StaticResource Icon}" Text="&#xE768;" FontSize="12" Foreground="{DynamicResource Brush.OnAccent}" />
+                                <TextBlock x:Name="ProfLabel" Text="Start profiling" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                        <StackPanel>
+                            <TextBlock Text="Lua profiler" Style="{StaticResource Text.Title}" />
+                            <TextBlock x:Name="ProfInfo" Style="{StaticResource Text.Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,12,0"
+                                       Text="Times every hook, timer and net message handler and counts outgoing net messages and entities. Costs 1-3 µs per call while it runs, so switch it off when done." />
+                        </StackPanel>
+                    </DockPanel>
+                    <Grid x:Name="ProfTables" Margin="0,12,0,0" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.ColumnSpan="3" Margin="0,0,0,12">
+                            <TextBlock Text="HOOKS (event / name)" Style="{StaticResource Text.Section}" />
+                            <DataGrid ItemsSource="{Binding Stats.Hooks}" Style="{StaticResource ProfGrid}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Hook" Binding="{Binding Key}" Width="2*" />
+                                    <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="70" />
+                                    <DataGridTextColumn Header="calls/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="70" />
+                                    <DataGridTextColumn Header="max ms" Binding="{Binding MaxText}" SortMemberPath="MaxMs" Width="70" />
+                                    <DataGridTextColumn Header="Defined in" Binding="{Binding Source}" Width="2*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
+                            <TextBlock Text="TIMERS" Style="{StaticResource Text.Section}" />
+                            <DataGrid ItemsSource="{Binding Stats.Timers}" Style="{StaticResource ProfGrid}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Timer" Binding="{Binding Key}" Width="*" />
+                                    <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="65" />
+                                    <DataGridTextColumn Header="calls/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="65" />
+                                    <DataGridTextColumn Header="max ms" Binding="{Binding MaxText}" SortMemberPath="MaxMs" Width="65" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,12">
+                            <TextBlock Text="ENTITIES BY CLASS" Style="{StaticResource Text.Section}" />
+                            <DataGrid ItemsSource="{Binding Stats.EntityClasses}" Style="{StaticResource ProfGrid}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Class" Binding="{Binding Class}" Width="*" />
+                                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="70" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                        <StackPanel Grid.Row="2" Grid.Column="0">
+                            <TextBlock Text="NET MESSAGES RECEIVED" Style="{StaticResource Text.Section}" />
+                            <DataGrid ItemsSource="{Binding Stats.NetReceive}" Style="{StaticResource ProfGrid}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Message" Binding="{Binding Key}" Width="*" />
+                                    <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="60" />
+                                    <DataGridTextColumn Header="msg/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="60" />
+                                    <DataGridTextColumn Header="data" Binding="{Binding BytesText}" SortMemberPath="BytesPerSec" Width="85" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                        <StackPanel Grid.Row="2" Grid.Column="2">
+                            <TextBlock Text="NET MESSAGES SENT" Style="{StaticResource Text.Section}" />
+                            <DataGrid ItemsSource="{Binding Stats.NetSend}" Style="{StaticResource ProfGrid}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Message" Binding="{Binding Key}" Width="*" />
+                                    <DataGridTextColumn Header="msg/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="60" />
+                                    <DataGridTextColumn Header="data (all recipients)" Binding="{Binding BytesText}" SortMemberPath="BytesPerSec" Width="130" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

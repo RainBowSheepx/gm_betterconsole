@@ -1,0 +1,23 @@
+<Application x:Class="BetterConsole.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:BetterConsole.App.Controls"
+             ShutdownMode="OnMainWindowClose">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <c:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <c:BoolToVisibilityConverter x:Key="BoolToCollapsed" Invert="True" />
+            <c:NullToCollapsedConverter x:Key="NullToCollapsed" />
+            <c:NullToCollapsedConverter x:Key="NullToVisible" Invert="True" />
+            <c:KindToBrushConverter x:Key="KindToBrush" />
+            <c:KindToBrushConverter x:Key="KindToSoftBrush" Suffix="Soft" />
+            <c:ResourceBrushConverter x:Key="ResourceBrush" />
+            <c:InitialConverter x:Key="Initial" />
+            <c:NameToColorConverter x:Key="NameToColor" />
+            <c:SpanWidthConverter x:Key="SpanWidth" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

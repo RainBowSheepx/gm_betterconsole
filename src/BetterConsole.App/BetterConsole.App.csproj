@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>BetterConsole</AssemblyName>
+    <RootNamespace>BetterConsole.App</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Where the native module builds land (CI passes its own folder). -->
+    <CompanionBinDir Condition="'$(CompanionBinDir)' == ''">$(MSBuildThisFileDirectory)..\..\native\build</CompanionBinDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.0.90" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BetterConsole.Core\BetterConsole.Core.csproj" />
+    <ProjectReference Include="..\BetterConsole.Sdk\BetterConsole.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+  <!-- The companion addon and module ship inside the exe and are installed into the server on start. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\addon\betterconsole\**\*.lua">
+      <LogicalName>companion/addon/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(CompanionBinDir)\x64\bin\gmsv_betterconsole_win64.dll" Condition="Exists('$(CompanionBinDir)\x64\bin\gmsv_betterconsole_win64.dll')">
+      <LogicalName>companion/bin/gmsv_betterconsole_win64.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(CompanionBinDir)\x86\bin\gmsv_betterconsole_win32.dll" Condition="Exists('$(CompanionBinDir)\x86\bin\gmsv_betterconsole_win32.dll')">
+      <LogicalName>companion/bin/gmsv_betterconsole_win32.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
+

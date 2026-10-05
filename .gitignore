@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+out/
+artifacts/
+native/build/
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+TestResults/
+
+# Local app data written next to the exe during development
+settings*.json
+!src/**/settings*.json
+logs/
+crash-*.txt
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store

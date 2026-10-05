@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <!-- One version for the app, the SDK and the companion addon. CI overrides it from the git tag. -->
+    <Version Condition="'$(Version)' == ''">0.1.0</Version>
+    <Authors>RainBowSheepx</Authors>
+    <Company>BetterConsole</Company>
+    <Product>BetterConsole for Garry's Mod</Product>
+    <Copyright>Copyright (c) 2026 RainBowSheepx</Copyright>
+    <RepositoryUrl>https://github.com/RainBowSheepx/gm_betterconsole</RepositoryUrl>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

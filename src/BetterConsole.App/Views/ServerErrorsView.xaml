@@ -1,0 +1,65 @@
+<UserControl x:Class="BetterConsole.App.Views.ServerErrorsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:BetterConsole.App.Controls">
+    <Grid Margin="12,8,12,10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <Button Style="{StaticResource Btn.Ghost}" Click="OnExpandAll" ToolTip="Show every stack trace">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8A9;" FontSize="13" />
+                        <TextBlock Text="Expand all" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Btn.Ghost}" Click="OnCollapseAll">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8A0;" FontSize="13" />
+                        <TextBlock Text="Collapse all" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Btn.Ghost}" Click="OnCopyAll" ToolTip="Copy all errors as text">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8C8;" FontSize="13" />
+                        <TextBlock Text="Copy all" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource Btn.Ghost}" Click="OnClear">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" FontSize="13" />
+                        <TextBlock Text="Clear" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <Grid Width="280" HorizontalAlignment="Left">
+                <TextBox x:Name="Filter" TextChanged="OnFilterChanged" Padding="30,5,8,5" />
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE721;" FontSize="12" HorizontalAlignment="Left" Margin="10,0,0,0"
+                           Foreground="{DynamicResource Brush.TextMuted}" IsHitTestVisible="False" />
+                <TextBlock Text="Filter errors…" Margin="31,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{DynamicResource Brush.TextMuted}"
+                           Visibility="{Binding Text, ElementName=Filter, Converter={StaticResource NullToVisible}}" />
+            </Grid>
+            <TextBlock x:Name="Summary" Margin="14,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" FontSize="12" />
+        </DockPanel>
+
+        <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      c:ScrollAnchor.IsEnabled="True" c:ScrollAnchor.StickToBottom="True" Padding="0,0,4,0">
+            <ItemsControl x:Name="List">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <c:ErrorCard />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <StackPanel x:Name="Empty" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="&#xE73E;" FontFamily="{StaticResource Font.Icons}" FontSize="34" HorizontalAlignment="Center" Foreground="{DynamicResource Brush.Success}" />
+            <TextBlock Text="No server Lua errors" Style="{StaticResource Text.Title}" HorizontalAlignment="Center" Margin="0,10,0,4" />
+            <TextBlock Text="Errors of the server realm appear here, oldest first. Repeats only raise the counter." Style="{StaticResource Text.Muted}" HorizontalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</UserControl>

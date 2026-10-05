@@ -1,0 +1,245 @@
+<Window x:Class="BetterConsole.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:BetterConsole.App.ViewModels"
+        Title="{Binding WindowTitle}" Width="1280" Height="800" MinWidth="760" MinHeight="460"
+        Background="{DynamicResource Brush.Background}" Foreground="{DynamicResource Brush.Text}"
+        FontFamily="{StaticResource Font.Ui}" FontSize="13" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        Icon="Assets/app.ico" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="StatusSep" TargetType="Border">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Margin" Value="10,7" />
+            <Setter Property="Background" Value="{DynamicResource Brush.Border}" />
+        </Style>
+        <Style x:Key="StatusText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+        </Style>
+        <Style x:Key="StatusLabel" TargetType="TextBlock" BasedOn="{StaticResource StatusText}">
+            <Setter Property="Foreground" Value="{DynamicResource Brush.TextMuted}" />
+            <Setter Property="Margin" Value="0,0,5,0" />
+        </Style>
+        <Style x:Key="StatusValue" TargetType="TextBlock" BasedOn="{StaticResource StatusText}">
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
+            <Setter Property="FontFamily" Value="{StaticResource Font.Mono}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ===================================================== header: tabs + server controls -->
+        <Border Background="{DynamicResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
+            <DockPanel Height="46" LastChildFill="True">
+                <Image Source="Assets/logo.png" Width="22" Height="22" Margin="14,0,8,0" DockPanel.Dock="Left" RenderOptions.BitmapScalingMode="HighQuality" />
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <!-- state pill -->
+                    <Border x:Name="StatePill" CornerRadius="12" Padding="10,4" Margin="0,0,10,0" Background="{DynamicResource Brush.Surface}"
+                            BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="StateDot" Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center" Fill="{DynamicResource Brush.TextMuted}" />
+                            <TextBlock Text="{Binding StateText}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding UptimeText}" FontFamily="{StaticResource Font.Mono}" FontSize="11.5" Margin="7,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Brush.TextMuted}" Visibility="{Binding UptimeText, Converter={StaticResource NullToCollapsed}}" />
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="StartButton" Style="{StaticResource Btn.Primary}" Command="{Binding StartCommand}" Margin="0,0,6,0" Padding="12,4" ToolTip="Start the server (F5)"
+                            Visibility="{Binding CanStart, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE768;" FontSize="12" Foreground="{DynamicResource Brush.OnAccent}" />
+                            <TextBlock Text="Start" Margin="7,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource Btn}" Command="{Binding StopCommand}" Margin="0,0,6,0" Padding="12,4" ToolTip="Send quit and wait (Shift+F5)"
+                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE71A;" FontSize="12" Foreground="{DynamicResource Brush.Danger}" />
+                            <TextBlock Text="Stop" Margin="7,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource Btn}" Command="{Binding RestartCommand}" Margin="0,0,6,0" Padding="12,4" ToolTip="Stop and start again (Ctrl+F5)"
+                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE72C;" FontSize="12" Foreground="{DynamicResource Brush.Accent}" />
+                            <TextBlock Text="Restart" Margin="7,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="MoreButton" Style="{StaticResource Btn.Icon}" Content="&#xE712;" ToolTip="More" Click="OnMore" />
+                    <Button Style="{StaticResource Btn.Icon}" Content="&#xE793;" ToolTip="Switch theme" Click="OnThemeClick" />
+                    <Button Style="{StaticResource Btn.Icon}" Content="&#xE713;" ToolTip="Settings" Click="OnSettings" />
+                </StackPanel>
+
+                <!-- tabs -->
+                <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" PreviewMouseWheel="OnTabsWheel" x:Name="TabScroller">
+                    <ItemsControl ItemsSource="{Binding Tabs}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TabVm}">
+                                <RadioButton Style="{StaticResource TabHeader}" GroupName="Tabs" IsChecked="{Binding IsSelected, Mode=OneWay}" Click="OnTabClick" Height="46">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Icon}" FontFamily="{StaticResource Font.Icons}" FontSize="13" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                        <TextBlock Text="{Binding Header}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                        <Border CornerRadius="8" Padding="6,0" Margin="7,0,0,0" MinWidth="18" VerticalAlignment="Center"
+                                                Visibility="{Binding HasBadge, Converter={StaticResource BoolToVisibility}}">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="{DynamicResource Brush.SurfaceActive}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding BadgeKind}" Value="danger">
+                                                            <Setter Property="Background" Value="{DynamicResource Brush.DangerSoft}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding BadgeKind}" Value="accent">
+                                                            <Setter Property="Background" Value="{DynamicResource Brush.AccentSoft}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding Badge}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding BadgeKind}" Value="danger">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Danger}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding BadgeKind}" Value="accent">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.Accent}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                    </StackPanel>
+                                </RadioButton>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- ===================================================== tab content (views stay alive) -->
+        <Grid x:Name="Host" Grid.Row="1" />
+
+        <!-- toasts -->
+        <ItemsControl Grid.Row="1" ItemsSource="{Binding Toasts}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,78" IsHitTestVisible="False">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="{x:Type vm:ToastVm}">
+                    <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.BorderStrong}" BorderThickness="1" CornerRadius="8"
+                            Padding="12,9" Margin="0,8,0,0" MaxWidth="460" HorizontalAlignment="Right">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.35" />
+                        </Border.Effect>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Icon}" FontFamily="{StaticResource Font.Icons}" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"
+                                       Foreground="{Binding ColorKey, Converter={StaticResource ResourceBrush}}" />
+                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxWidth="400" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- ===================================================== status bar -->
+        <Border Grid.Row="2" Background="{DynamicResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0">
+            <DockPanel Height="30" Margin="12,0">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <ItemsControl ItemsSource="{Binding ExtraStatus}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:StatusItemVm}">
+                                <StackPanel Orientation="Horizontal" Visibility="{Binding Visible, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding Tooltip}">
+                                    <TextBlock x:Name="T" Text="{Binding Text}" Style="{StaticResource StatusText}" />
+                                    <Border Style="{StaticResource StatusSep}" />
+                                </StackPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Foreground, Converter={StaticResource NullToCollapsed}}" Value="Visible">
+                                        <Setter TargetName="T" Property="Foreground" Value="{Binding Foreground}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Orientation="Horizontal" ToolTip="{Binding BridgeTooltip}" Background="Transparent">
+                        <Ellipse x:Name="BridgeDot" Width="7" Height="7" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Brush.TextMuted}" />
+                        <TextBlock Text="{Binding BridgeText}" Style="{StaticResource StatusText}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Horizontal" ToolTip="Map">
+                        <TextBlock Text="&#xE707;" FontFamily="{StaticResource Font.Icons}" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding MapText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Players / max (+ bots)">
+                        <TextBlock Text="Players" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding PlayersText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="{Binding CpuTooltip}">
+                        <TextBlock Text="CPU" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding CpuText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Data received from all clients">
+                        <TextBlock Text="In" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding InText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Data sent to all clients">
+                        <TextBlock Text="Out" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding OutText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="{Binding SvTooltip}">
+                        <TextBlock Text="SV" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding SvText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Ticks per second / tick rate">
+                        <TextBlock Text="Tick" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding TickText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Game thread load: share of time the main thread was busy">
+                        <TextBlock Text="Load" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding LoadText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Entities (edicts)">
+                        <TextBlock Text="Ents" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding EntsText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Lua memory">
+                        <TextBlock Text="Lua" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding LuaText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                    <Border Style="{StaticResource StatusSep}" />
+                    <StackPanel Orientation="Horizontal" ToolTip="Private memory of srcds">
+                        <TextBlock Text="RAM" Style="{StaticResource StatusLabel}" />
+                        <TextBlock Text="{Binding MemText}" Style="{StaticResource StatusValue}" />
+                    </StackPanel>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
