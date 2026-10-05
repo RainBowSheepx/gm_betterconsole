@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A sample BetterConsole plugin. Build it and copy bin\...\QuickCommands.dll into
+       BetterConsole\plugins\QuickCommands\ (the release ships it there already). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>QuickCommands</AssemblyName>
+    <RootNamespace>QuickCommands</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Private=false: the SDK comes from BetterConsole itself, it must not be copied next to the plugin. -->
+    <ProjectReference Include="..\..\src\BetterConsole.Sdk\BetterConsole.Sdk.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

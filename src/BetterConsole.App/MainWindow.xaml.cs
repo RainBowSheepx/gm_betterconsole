@@ -20,6 +20,8 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm;
     private readonly PluginManager _plugins;
+
+    public PluginManager Plugins => _plugins;
     private bool _closingConfirmed;
 
     public MainWindow(MainViewModel vm)
@@ -187,23 +189,6 @@ public partial class MainWindow : Window
     {
         var dir = Path.Combine(AppSettings.DataDirectory, "themes");
         Directory.CreateDirectory(dir);
-        var sample = Path.Combine(dir, "example-ocean.json.sample");
-        if (!File.Exists(sample))
-        {
-            File.WriteAllText(sample, """
-                {
-                  // Rename to example-ocean.json and pick it from the theme menu.
-                  // Any colour you leave out comes from "base". All names: see docs/themes.md
-                  "base": "Dark",
-                  "Background": "#0F1B24",
-                  "Panel": "#132331",
-                  "Surface": "#18304A",
-                  "Accent": "#3FC1C9",
-                  "AccentSoft": "#1B4650",
-                  "ConsoleBackground": "#0B151D"
-                }
-                """);
-        }
         return dir;
     }
 

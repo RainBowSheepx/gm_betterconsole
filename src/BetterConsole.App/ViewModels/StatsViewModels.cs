@@ -159,7 +159,7 @@ public sealed partial class StatsVm : ObservableObject
             foreach (var e in ents.EnumerateArray())
                 EntityClasses.Add(new EntityClassRow(Str(e, "k") ?? "?", (int)Num(e, "n")));
         double since = m.TryGetProperty("since", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetDouble() : 0;
-        ProfilingInfo = $"Profiling for {TimeSpan.FromSeconds(since):mm\\:ss} · numbers are per second, refreshed every second";
+        ProfilingInfo = $"Profiling for {TimeSpan.FromSeconds(since):mm\\:ss} · averages per second since the start, refreshed every second";
     }
 
     private static void Fill(ObservableCollection<ProfileRow> target, JsonElement m, string name)

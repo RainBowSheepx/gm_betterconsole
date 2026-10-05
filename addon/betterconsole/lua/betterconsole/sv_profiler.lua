@@ -7,7 +7,9 @@ Switched on from the Statistics tab ("Profile Lua"). While on:
   * net.Receive handlers are timed and incoming messages counted with their size;
   * net.Start / net.Send* are detoured to count outgoing messages and bytes per name;
   * entities are counted by class every 5 seconds.
-Once a second the top entries go to the app. Off = every wrapper and detour is removed again.
+Once a second the top entries go to the app: averages per second since profiling started, so the
+ranking is steady (a timer that runs every 2 s does not blink in and out). Off = every wrapper and
+detour is removed again.
 
 Wrappers cost about 1-3 microseconds per call, so a busy server pays a few percent while profiling.
 ]]
@@ -258,6 +260,11 @@ end
 ---------------------------------------------------------------------------
 local function MeasureTimer(key, fn)
 	key = key or T.FnName(fn)
+	-- BetterConsole's own timers are not what anybody profiles.
+	if key:find("^BetterConsole%.") then
+		fn()
+		return key
+	end
 	local t0 = SysTime()
 	fn()
 	Add("timers", key, SysTime() - t0)
@@ -301,21 +308,22 @@ function BC.ProfilerTick(now, wall)
 	table.sort(entList, function(a, b) return a.n > b.n end)
 	for i = 31, #entList do entList[i] = nil end
 
+	-- Everything is summed up since profiling started and divided by that time.
+	local span = math.max(now - (P.since or now), 1)
 	-- Bytes first for outgoing messages: they cost no measurable Lua time.
-	local netout = Top("netout", wall, 30)
+	local netout = Top("netout", span, 30)
 	table.sort(netout, function(a, b) return a.b > b.b end)
 
 	BC.Emit({
 		t = "prof",
-		hooks = Top("hooks", wall, 40),
-		timers = Top("timers", wall, 30),
-		netin = Top("netin", wall, 30),
+		hooks = Top("hooks", span, 40),
+		timers = Top("timers", span, 30),
+		netin = Top("netin", span, 30),
 		netout = netout,
 		ents = entList,
 		entTotal = entTotal,
-		since = P.since and now - P.since or 0,
+		since = span,
 	})
-	acc = {}
 end
 
 function P.Start()

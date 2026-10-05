@@ -165,11 +165,11 @@
 
         <Border Grid.Row="1" Background="{DynamicResource Brush.Background}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="24,12">
             <DockPanel>
-                <TextBlock x:Name="DataDir" Style="{StaticResource Text.Muted}" FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="12,0,0,0">
                     <Button Content="Cancel" MinWidth="90" Margin="0,0,8,0" IsCancel="True" />
                     <Button Content="Save" MinWidth="90" Style="{StaticResource Btn.Primary}" IsDefault="True" Click="OnSave" />
                 </StackPanel>
+                <TextBlock x:Name="DataDir" Style="{StaticResource Text.Muted}" FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             </DockPanel>
         </Border>
     </Grid>

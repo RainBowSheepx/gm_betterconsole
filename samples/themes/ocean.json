@@ -1,0 +1,27 @@
+{
+  // A custom theme: put JSON files like this one into the "themes" folder next to BetterConsole.exe
+  // and pick them from the theme menu (the sun icon). Colours you leave out come from "base".
+  // Every name you can set is listed in docs/themes.md.
+  "base": "Dark",
+  "Background": "#0E1A22",
+  "Panel": "#11212C",
+  "Surface": "#16303D",
+  "SurfaceHover": "#1C3B4B",
+  "SurfaceActive": "#23485B",
+  "Border": "#1F3A48",
+  "BorderStrong": "#2C5163",
+  "Text": "#E2F1F5",
+  "TextSecondary": "#A6C4CC",
+  "TextMuted": "#6F929C",
+  "Accent": "#3FC1C9",
+  "AccentHover": "#5ED3DA",
+  "AccentSoft": "#18414A",
+  "OnAccent": "#06191C",
+  "ConsoleBackground": "#0A151C",
+  "ConsoleSelection": "#1E5560",
+  "ConsoleCommand": "#7FE0E6",
+  "InputBackground": "#0D1C25",
+  "ChartGrid": "#1A3340",
+  "Chart1": "#3FC1C9",
+  "Chart2": "#F7B267"
+}

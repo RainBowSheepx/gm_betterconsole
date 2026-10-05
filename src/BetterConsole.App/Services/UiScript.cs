@@ -124,6 +124,18 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 await Task.Delay(400);
                 break;
             }
+            case "settings":
+                if (arg == "close") { _settings?.Close(); _settings = null; }
+                else
+                {
+                    _settings = new SettingsWindow(vm, window.Plugins, firstRun: false) { Owner = window, Width = 780, Height = 900 };
+                    _settings.Show();
+                }
+                await Task.Delay(500);
+                break;
+            case "shot-settings":
+                if (_settings?.Content is FrameworkElement sc) ShotElement(sc, _settings.Background, arg, _settings.Title);
+                break;
             case "closemenus":
                 foreach (PresentationSource src in PresentationSource.CurrentSources)
                 {
@@ -177,6 +189,33 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
     }
 
     private ConsoleView? Console() => vm.FindTab("console")?.Content as ConsoleView;
+
+    private SettingsWindow? _settings;
+
+    /// <summary>Renders one element (a dialog's content) with a drawn title bar.</summary>
+    private static void ShotElement(FrameworkElement content, Brush background, string path, string title)
+    {
+        content.UpdateLayout();
+        const double titleH = 32;
+        double w = content.ActualWidth, h = content.ActualHeight, scale = 1.25;
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRectangle(ThemeManager.GetBrush("Panel"), null, new Rect(0, 0, w, titleH));
+            var font = (FontFamily)Application.Current.Resources["Font.Ui"];
+            var ft = new FormattedText(title, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                new Typeface(font, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 12, ThemeManager.GetBrush("Text"), 1.25);
+            dc.DrawText(ft, new Point(14, (titleH - ft.Height) / 2));
+            dc.DrawRectangle(background, null, new Rect(0, titleH, w, h));
+            dc.DrawRectangle(new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, titleH, w, h));
+        }
+        var rtb = new RenderTargetBitmap((int)Math.Ceiling(w * scale), (int)Math.Ceiling((h + titleH) * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        rtb.Render(dv);
+        using var fs = File.Create(path);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(rtb));
+        enc.Save(fs);
+    }
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr h, out RECT r);

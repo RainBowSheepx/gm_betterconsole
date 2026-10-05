@@ -73,6 +73,8 @@ public partial class ConsoleView : UserControl
         SearchPanel.Install(Output);
 
         Output.TextArea.TextView.ScrollOffsetChanged += OnScrollChanged;
+        // A horizontal scroll bar appearing (or a resize) shrinks the view: stay at the end.
+        Output.TextArea.TextView.SizeChanged += (_, _) => { if (_follow) Output.ScrollToEnd(); };
         Output.PreviewMouseWheel += (_, e) => { if (e.Delta > 0) MarkUserScroll(); };
         Output.PreviewKeyDown += (_, e) => { if (e.Key is Key.Up or Key.PageUp or Key.Home) MarkUserScroll(); };
         Output.TextArea.PreviewMouseLeftButtonDown += (_, _) => MarkUserScroll();

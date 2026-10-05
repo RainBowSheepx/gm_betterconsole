@@ -40,6 +40,9 @@ $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvarsall.bat"
 $env:PATH = "$(Split-Path $vswhere);$env:PATH"
 $ErrorActionPreference = "Continue"
 
+# CMake wants a plain x.y.z (no "-dev" suffix).
+$Version = ($Version.TrimStart("v") -split '[-+]')[0]
+
 $archs = if ($Arch -eq "both") { @("x64", "x86") } else { @($Arch) }
 foreach ($a in $archs) {
     $build = Join-Path $native "build\$a"

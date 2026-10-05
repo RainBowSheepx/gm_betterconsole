@@ -135,21 +135,22 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
     private readonly string _id;
     private readonly MainViewModel _vm;
     private readonly Window _window;
+    private bool _reportedFailure;
 
     public PluginContext(string id, MainViewModel vm, Window window)
     {
         _id = id;
         _vm = vm;
         _window = window;
-        vm.ServerStateChanged += (o, n, c) => StateChanged?.Invoke(this, new ServerStateChangedEventArgs(o, n, c));
-        vm.SnapshotUpdated += s => SnapshotUpdated?.Invoke(this, s);
+        vm.ServerStateChanged += (o, n, c) => Raise(StateChanged, new ServerStateChangedEventArgs(o, n, c));
+        vm.SnapshotUpdated += s => Raise(SnapshotUpdated, s);
         vm.ConsoleEvents += events =>
         {
             if (LineReceived == null) return;
             foreach (var e in events)
-                if (e is BetterConsole.Core.Console.LineAdded la) LineReceived?.Invoke(this, new ConsoleLineEventArgs(la.Line));
+                if (e is BetterConsole.Core.Console.LineAdded la) Raise(LineReceived, new ConsoleLineEventArgs(la.Line));
         };
-        vm.BridgeConnectionChanged += c => ConnectionChanged?.Invoke(this, c);
+        vm.BridgeConnectionChanged += c => Raise(ConnectionChanged, c);
         vm.BridgeMessage += (type, msg) =>
         {
             if (MessageReceived == null) return;
@@ -157,11 +158,36 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
             {
                 var t = msg.TryGetProperty("type", out var tt) && tt.ValueKind == JsonValueKind.String ? tt.GetString()! : "custom";
                 var data = msg.TryGetProperty("data", out var d) ? d : default;
-                MessageReceived?.Invoke(this, new BridgeMessage(t, data));
+                Raise(MessageReceived, new BridgeMessage(t, data));
             }
-            else MessageReceived?.Invoke(this, new BridgeMessage(type, msg));
+            else Raise(MessageReceived, new BridgeMessage(type, msg));
         };
-        Themes.ThemeManager.Changed += t => ThemeChanged?.Invoke(this, t.Name);
+        Themes.ThemeManager.Changed += t => Raise(ThemeChanged, t.Name);
+    }
+
+    /// <summary>
+    /// Calls every handler separately: a plugin that throws neither breaks the app nor the other
+    /// handlers; the first failure of a plugin is shown as a notification.
+    /// </summary>
+    private void Raise<T>(EventHandler<T>? handler, T args)
+    {
+        if (handler == null) return;
+        foreach (EventHandler<T> h in handler.GetInvocationList())
+        {
+            try
+            {
+                h(this, args);
+            }
+            catch (Exception ex)
+            {
+                Services.Log.Write($"[{_id}] event handler failed: {ex}");
+                if (!_reportedFailure)
+                {
+                    _reportedFailure = true;
+                    _vm.Notify($"Plugin {_id} failed in an event handler: {ex.Message}", NotifyKind.Error);
+                }
+            }
+        }
     }
 
     public IServer Server => this;

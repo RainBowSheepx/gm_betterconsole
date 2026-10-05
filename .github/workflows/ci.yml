@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: .NET info
+        run: dotnet --info
+
+      - name: Native module (win32 + win64)
+        shell: pwsh
+        run: ./scripts/build-native.ps1 -Arch both
+
+      - name: Tests
+        run: dotnet test tests/BetterConsole.Tests -c Release -nologo
+
+      - name: Build everything
+        run: dotnet build BetterConsole.sln -c Release -nologo
+
+      - name: Repository check
+        shell: pwsh
+        run: ./scripts/check-repo.ps1
