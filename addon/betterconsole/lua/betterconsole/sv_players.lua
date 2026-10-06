@@ -134,6 +134,13 @@ function BC.SendPlayers()
 			deaths = ply:Deaths(),
 		}
 		if perTick then p.load = (loadAcc[ply] or 0) * perTick end
+		if not p.bot then
+			-- What the client asks for; the server keeps it within sv_min/maxupdaterate and sv_min/maxcmdrate.
+			p.upd = ply:GetInfoNum("cl_updaterate", 0)
+			p.cmdr = ply:GetInfoNum("cl_cmdrate", 0)
+		end
+		-- Items of the player menu whose filter accepts this player.
+		p.act = BC.PlayerActionFlags(ply)
 		if ulxOn then
 			p.ulxid = ULib.getUniqueIDForPlayer and ULib.getUniqueIDForPlayer(ply) or nil
 			p.gagged = ply.ulx_gagged or ply:GetNWBool("ulx_gagged", false) or nil

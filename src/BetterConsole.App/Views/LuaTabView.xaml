@@ -1,113 +1,17 @@
 <UserControl x:Class="BetterConsole.App.Views.LuaTabView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="clr-namespace:BetterConsole.App.ViewModels"
-             xmlns:c="clr-namespace:BetterConsole.App.Controls">
+             xmlns:v="clr-namespace:BetterConsole.App.Views">
     <UserControl.Resources>
-        <Style x:Key="WidgetCard" TargetType="Border" BasedOn="{StaticResource Card}">
-            <Setter Property="Margin" Value="0,0,12,12" />
-        </Style>
-
-        <DataTemplate DataType="{x:Type vm:TextWidgetVm}">
-            <Border Style="{StaticResource WidgetCard}">
-                <StackPanel>
-                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,6" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
-                    <TextBox Style="{StaticResource SelectableText}" Text="{Binding Text, Mode=OneWay}" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-
-        <DataTemplate DataType="{x:Type vm:KeyValueWidgetVm}">
-            <Border Style="{StaticResource WidgetCard}">
-                <StackPanel>
-                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,8" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
-                    <ItemsControl ItemsSource="{Binding Rows}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" SharedSizeGroup="k" />
-                                        <ColumnDefinition Width="2*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding Key}" Foreground="{DynamicResource Brush.TextSecondary}" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
-                                    <TextBox Grid.Column="1" Style="{StaticResource SelectableText}" Text="{Binding Value, Mode=OneWay}" FontWeight="SemiBold" />
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-
-        <DataTemplate DataType="{x:Type vm:TableWidgetVm}">
-            <Border Style="{StaticResource WidgetCard}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,8" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
-                    <DataGrid ItemsSource="{Binding Rows}" MaxHeight="420" Loaded="OnTableLoaded" RowHeight="26" FontSize="12.5" />
-                </DockPanel>
-            </Border>
-        </DataTemplate>
-
-        <DataTemplate DataType="{x:Type vm:LogWidgetVm}">
-            <Border Style="{StaticResource WidgetCard}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,8" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
-                    <Border Background="{DynamicResource Brush.ConsoleBackground}" CornerRadius="{StaticResource Radius}" Padding="8,6" Height="260">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" c:ScrollAnchor.IsEnabled="True" c:ScrollAnchor.StickToBottom="True">
-                            <ItemsControl ItemsSource="{Binding Lines}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid c:ScrollAnchor.IsCandidate="True">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding TimeText}" FontFamily="{StaticResource Font.Mono}" FontSize="12" Foreground="{DynamicResource Brush.TextMuted}" Margin="0,0,10,0" />
-                                            <TextBox x:Name="T" Grid.Column="1" Style="{StaticResource SelectableText}" Text="{Binding Text, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" FontSize="12.5"
-                                                     Foreground="{DynamicResource Brush.ConsoleText}" />
-                                        </Grid>
-                                        <DataTemplate.Triggers>
-                                            <DataTrigger Binding="{Binding Color, Converter={StaticResource NullToCollapsed}}" Value="Visible">
-                                                <Setter TargetName="T" Property="Foreground" Value="{Binding Color}" />
-                                            </DataTrigger>
-                                        </DataTemplate.Triggers>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </Border>
-                </DockPanel>
-            </Border>
-        </DataTemplate>
-
-        <DataTemplate DataType="{x:Type vm:ChartWidgetVm}">
-            <Border Style="{StaticResource WidgetCard}" Height="230">
-                <c:TimeSeriesChart Title="{Binding Title}" Unit="{Binding Unit}" Loaded="OnChartLoaded" WindowSeconds="600" Decimals="1" />
-            </Border>
-        </DataTemplate>
-
-        <DataTemplate DataType="{x:Type vm:ButtonsWidgetVm}">
-            <Border Style="{StaticResource WidgetCard}">
-                <StackPanel>
-                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,8" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
-                    <ItemsControl ItemsSource="{Binding Buttons}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Content="{Binding Text}" Margin="0,0,8,8" Click="OnButtonClick" Loaded="OnButtonLoaded" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-        </DataTemplate>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- the look of every widget type -->
+                <v:LuaWidgets />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="12,10,0,10">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="{DynamicResource Pad.PageScroll}">
         <Grid>
             <ItemsControl x:Name="Widgets" ItemsSource="{Binding Widgets}" Grid.IsSharedSizeScope="True">
                 <ItemsControl.ItemsPanel>

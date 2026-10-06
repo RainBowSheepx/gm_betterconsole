@@ -45,8 +45,32 @@ public sealed class TimeSeriesChart : FrameworkElement
     public TimeSeriesChart()
     {
         ClipToBounds = true;
-        MinHeight = 150;
-        ThemeManager.Changed += _ => InvalidateVisual();
+        MinHeight = 100;
+        // The theme and compact mode are static events: subscribed only while the chart is on screen,
+        // so a chart that was dropped (an addon's, after a map change) is not kept alive by them.
+        Loaded += (_, _) =>
+        {
+            ThemeManager.Changed -= OnThemeChanged;   // Loaded may come twice
+            Look.Changed -= ApplyLook;
+            ThemeManager.Changed += OnThemeChanged;
+            Look.Changed += ApplyLook;
+            ApplyLook();
+        };
+        Unloaded += (_, _) =>
+        {
+            ThemeManager.Changed -= OnThemeChanged;
+            Look.Changed -= ApplyLook;
+        };
+        ApplyLook();
+    }
+
+    private void OnThemeChanged(ThemePalette _) => InvalidateVisual();
+
+    // Compact mode: plain lines without anti-aliasing and no filled area, less to draw every second.
+    private void ApplyLook()
+    {
+        RenderOptions.SetEdgeMode(this, Look.Compact ? EdgeMode.Aliased : EdgeMode.Unspecified);
+        InvalidateVisual();
     }
 
     /// <summary>Adds a series; colour by theme key ("Chart1".."Chart6") or a fixed brush.</summary>
@@ -202,7 +226,7 @@ public sealed class TimeSeriesChart : FrameworkElement
                 }
             }
             geo.Freeze();
-            if (first && start != null && last != null)
+            if (first && !Look.Compact && start != null && last != null)
             {
                 // soft fill under the first series
                 var fill = new StreamGeometry();

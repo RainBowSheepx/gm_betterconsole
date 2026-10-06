@@ -89,6 +89,7 @@ local function Think()
 end
 
 BC.On("action", BC.HandleAction)
+BC.On("paction", BC.HandlePlayerAction)
 BC.On("custom", function(msg) hook.Run("BetterConsoleMessage", msg.type, msg.data) end)
 local polling = false
 BC.On("exec", function(msg)

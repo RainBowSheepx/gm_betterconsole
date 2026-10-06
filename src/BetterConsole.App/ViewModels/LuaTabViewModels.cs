@@ -54,6 +54,7 @@ public sealed partial class LuaTabVm : ObservableObject
         }
         LuaWidgetVm w = kind switch
         {
+            "stat" => new StatWidgetVm(),
             "text" => new TextWidgetVm(),
             "kv" => new KeyValueWidgetVm(),
             "table" => new TableWidgetVm(),
@@ -74,6 +75,28 @@ public sealed partial class LuaTabVm : ObservableObject
     {
         if (_widgets.TryGetValue(id, out var w)) w.Apply(op, data);
     }
+
+    /// <summary>Widget:Remove() in Lua, or a plugin's Remove.</summary>
+    public void Remove(string id)
+    {
+        if (!_widgets.Remove(id, out var w)) return;
+        Widgets.Remove(w);
+    }
+
+    /// <summary>A widget made in the app (a plugin's card, chart or section on the Statistics tab); its id is taken as it is.</summary>
+    public void Add(LuaWidgetVm w)
+    {
+        Remove(w.Id);
+        w.Tab = this;
+        _widgets[w.Id] = w;
+        Widgets.Add(w);
+    }
+
+    /// <summary>A new Lua state (map change, reconnect): the addon sends its widgets again; the plugins' stay.</summary>
+    public void RemoveLuaWidgets()
+    {
+        foreach (var id in _widgets.Keys.Where(k => !k.StartsWith("plugin:", StringComparison.Ordinal)).ToList()) Remove(id);
+    }
 }
 
 public abstract partial class LuaWidgetVm : ObservableObject
@@ -84,13 +107,26 @@ public abstract partial class LuaWidgetVm : ObservableObject
     [ObservableProperty] private string? title;
     /// <summary>Width in twelfths of the tab.</summary>
     [ObservableProperty] private int span = 12;
+    /// <summary>The span option was given (the Statistics tab makes charts half wide otherwise).</summary>
+    public bool SpanGiven { get; set; }
+    /// <summary>Position on the Statistics tab among the built-in parts (default: after them).</summary>
+    public int Order { get; set; } = 1000;
+
+    protected virtual int DefaultSpan => 12;
 
     public virtual void Configure(JsonElement opts)
     {
         Title = StatsVm.Str(opts, "title");
         var s = StatsVm.Num(opts, "span");
-        Span = double.IsNaN(s) ? 12 : Math.Clamp((int)s, 1, 12);
+        SpanGiven = !double.IsNaN(s);
+        Span = SpanGiven ? Math.Clamp((int)s, 1, 12) : DefaultSpan;
+        var o = StatsVm.Num(opts, "order");
+        Order = double.IsNaN(o) ? 1000 : (int)Math.Clamp(o, -100000, 100000);
+        Reconfigured?.Invoke();
     }
+
+    /// <summary>The addon defined the widget again (title, span, order may have changed).</summary>
+    public event Action? Reconfigured;
 
     public abstract void Apply(string op, JsonElement data);
 
@@ -111,6 +147,67 @@ public abstract partial class LuaWidgetVm : ObservableObject
         b.Freeze();
         return b;
     }
+}
+
+/// <summary>A key number (Stat): the title above, the big value, a line under it.</summary>
+public sealed partial class StatWidgetVm : LuaWidgetVm, BetterConsole.Sdk.IStatCard
+{
+    [ObservableProperty] private string value = "—";
+    [ObservableProperty] private string? sub;
+    [ObservableProperty] private string? tooltip;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ValueBrush))] private uint argb;
+
+    /// <summary>Four to a row on a tab of its own.</summary>
+    protected override int DefaultSpan => 3;
+
+    /// <summary>The colour of the value, or null for the theme's text colour.</summary>
+    public Brush? ValueBrush => Argb == 0 ? null : ParseBrush($"#{Argb & 0xFFFFFF:X6}");
+
+    /// <summary>The title in capitals, like the built-in numbers.</summary>
+    public string Label => (Title ?? "").ToUpperInvariant();
+
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.PropertyName == nameof(Title)) base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(Label)));
+    }
+
+    string BetterConsole.Sdk.IStatCard.Title { get => Title ?? ""; set => Title = value; }
+
+    public override void Configure(JsonElement opts)
+    {
+        base.Configure(opts);
+        Tooltip = StatsVm.Str(opts, "tooltip");
+    }
+
+    public override void Apply(string op, JsonElement data)
+    {
+        if (op == "clear")
+        {
+            Value = "—";
+            Sub = null;
+            return;
+        }
+        if (op != "set") return;
+        if (data.ValueKind == JsonValueKind.Object)
+        {
+            Value = data.TryGetProperty("value", out var v) ? Text(v) : "";
+            Sub = StatsVm.Str(data, "sub");
+            Argb = ThemeManager.TryParse(StatsVm.Str(data, "color"), out var c) ? 0xFF000000u | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B : 0;
+        }
+        else Value = Text(data);
+    }
+}
+
+/// <summary>A plugin's card with content of its own on the Statistics tab.</summary>
+public sealed class SectionWidgetVm(Func<System.Windows.FrameworkElement> factory) : LuaWidgetVm
+{
+    private System.Windows.FrameworkElement? _content;
+
+    /// <summary>Made the first time the tab shows it.</summary>
+    public System.Windows.FrameworkElement Content => _content ??= factory();
+
+    public override void Apply(string op, JsonElement data) { }
 }
 
 public sealed partial class TextWidgetVm : LuaWidgetVm
@@ -237,11 +334,37 @@ public sealed class LogWidgetVm : LuaWidgetVm
 
 public sealed record ChartSeriesDef(string Name, Brush Brush, TimeSeries Data);
 
-public sealed partial class ChartWidgetVm : LuaWidgetVm
+public sealed partial class ChartWidgetVm : LuaWidgetVm, BetterConsole.Sdk.IStatChart
 {
     [ObservableProperty] private string? unit;
     public ObservableCollection<ChartSeriesDef> Series { get; } = new();
     public event Action? Updated;
+
+    /// <summary>A plugin's chart.</summary>
+    public void SetSeries(IEnumerable<string> names)
+    {
+        Series.Clear();
+        int i = 0;
+        foreach (var name in names)
+        {
+            Series.Add(new ChartSeriesDef(name, ThemeManager.GetBrush("Chart" + (i % 6 + 1)), new TimeSeries(name, 5000)));
+            i++;
+        }
+        if (Series.Count == 0) Series.Add(new ChartSeriesDef("Value", ThemeManager.GetBrush("Chart1"), new TimeSeries("Value", 5000)));
+    }
+
+    public void Push(params double[] values)
+    {
+        double t = StatsVm.Now();
+        for (int i = 0; i < Series.Count && i < values.Length; i++) Series[i].Data.Add(t, values[i]);
+        Updated?.Invoke();
+    }
+
+    public void Clear()
+    {
+        foreach (var s in Series) s.Data.Clear();
+        Updated?.Invoke();
+    }
 
     public override void Configure(JsonElement opts)
     {
@@ -332,11 +455,22 @@ public sealed partial class StatusItemVm : ObservableObject, BetterConsole.Sdk.I
     public StatusItemVm(string id, int order) { Id = id; Order = order; }
 
     public string Id { get; }
-    public int Order { get; }
+    public int Order { get; set; }
     [ObservableProperty] private string text = "";
     [ObservableProperty] private string? tooltip;
-    [ObservableProperty] private bool visible = true;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsShown))] private bool visible = true;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Foreground))] private uint argb;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasLabel))] private string? label;
+    [ObservableProperty] private string? name;
+    /// <summary>The user hid it (the menu of the status bar).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsShown))] private bool userHidden;
+
+    public bool HasLabel => !string.IsNullOrEmpty(Label);
+    public bool IsShown => Visible && !UserHidden;
+    /// <summary>The id the addon or the plugin gave it (without "lua:" / "plugin:&lt;plugin&gt;:").</summary>
+    public string? ShortId { get; init; }
+    /// <summary>What the menu of the status bar calls it.</summary>
+    public string MenuName => !string.IsNullOrWhiteSpace(Name) ? Name! : !string.IsNullOrWhiteSpace(Label) ? Label! : ShortId ?? Id[(Id.IndexOf(':') + 1)..];
 
     public Brush? Foreground => Argb == 0 ? null : new SolidColorBrush(Color.FromArgb(255, (byte)(Argb >> 16), (byte)(Argb >> 8), (byte)Argb));
 }

@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using BetterConsole.App.Controls;
 using BetterConsole.App.Plugins;
 using BetterConsole.App.Services;
+using BetterConsole.App.Themes;
 using BetterConsole.App.ViewModels;
 using BetterConsole.Core.Server;
 using BetterConsole.Sdk;
@@ -154,6 +155,19 @@ public sealed class AppShell
     {
         foreach (var vm in _detached.Keys.ToList()) Attach(vm, select: false);
         Main.Activate();
+    }
+
+    /// <summary>
+    /// Compact mode or the theme of the settings, and the avatars that go with it (compact mode has none).
+    /// Written to the settings file when BetterConsole closes, like the other view settings.
+    /// </summary>
+    public void SetCompact(bool on)
+    {
+        Settings.CompactMode = on;
+        var theme = ThemeManager.Discover(Path.Combine(AppSettings.DataDirectory, "themes"))
+            .FirstOrDefault(t => t.Name.Equals(Settings.Theme, StringComparison.OrdinalIgnoreCase)) ?? ThemePalette.Dark;
+        Look.Apply(on, theme);
+        foreach (var vm in Servers) vm.ApplyAvatars();
     }
 
     // ------------------------------------------------------------------------------ servers

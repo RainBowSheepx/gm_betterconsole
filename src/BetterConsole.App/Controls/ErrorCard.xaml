@@ -4,10 +4,10 @@
              xmlns:c="clr-namespace:BetterConsole.App.Controls"
              c:ScrollAnchor.IsCandidate="True">
     <Border x:Name="Root" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1"
-            CornerRadius="{StaticResource Radius}" Margin="0,0,0,6">
+            CornerRadius="{DynamicResource Radius}" Margin="0,0,0,6">
         <Grid>
             <!-- flash when the error happens again -->
-            <Border x:Name="Flash" Background="{DynamicResource Brush.DangerSoft}" CornerRadius="{StaticResource Radius}" Opacity="0" IsHitTestVisible="False" />
+            <Border x:Name="Flash" Background="{DynamicResource Brush.DangerSoft}" CornerRadius="{DynamicResource Radius}" Opacity="0" IsHitTestVisible="False" />
             <Border Width="3" HorizontalAlignment="Left" CornerRadius="3,0,0,3" Background="{DynamicResource Brush.Danger}" Margin="-1,-1,0,-1" />
             <Grid Margin="6,6,8,8">
                 <Grid.RowDefinitions>
@@ -53,7 +53,7 @@
                     <TextBox Style="{StaticResource SelectableText}" Text="{Binding Details, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" FontSize="12.5"
                              Margin="0,0,0,8" Visibility="{Binding Details, Converter={StaticResource NullToCollapsed}}" c:LuaLinks.IsEnabled="True" />
                     <TextBlock Text="STACK TRACE" Style="{StaticResource Text.Section}" />
-                    <Border Background="{DynamicResource Brush.ConsoleBackground}" CornerRadius="{StaticResource Radius.Small}" Padding="10,8"
+                    <Border Background="{DynamicResource Brush.ConsoleBackground}" CornerRadius="{DynamicResource Radius.Small}" Padding="10,8"
                             BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
                         <TextBox Style="{StaticResource SelectableText}" Text="{Binding StackText, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" FontSize="12"
                                  Foreground="{DynamicResource Brush.TextSecondary}" TextWrapping="NoWrap" c:LuaLinks.IsEnabled="True" />

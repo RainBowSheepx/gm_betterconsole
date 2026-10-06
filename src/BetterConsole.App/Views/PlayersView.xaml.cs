@@ -134,6 +134,12 @@ public partial class PlayersView : UserControl
         foreach (var col in Grid.Columns)
         {
             var name = NameOf(col);
+            // A column this settings file has not seen yet (a newer version): hidden if it is by default.
+            if (!s.PlayerColumnsKnown.Contains(name))
+            {
+                if (Services.AppSettings.DefaultHiddenColumns.Contains(name) && !s.PlayerColumnsHidden.Contains(name)) s.PlayerColumnsHidden.Add(name);
+                s.PlayerColumnsKnown.Add(name);
+            }
             col.Visibility = s.PlayerColumnsHidden.Contains(name) ? Visibility.Collapsed : Visibility.Visible;
             col.Width = s.PlayerColumnSizes.TryGetValue(name, out var w) && ParseWidth(w) is { } width ? width : _defaultWidths[col];
         }
@@ -268,6 +274,7 @@ public partial class PlayersView : UserControl
     /// <summary>For the UI script runner: open the menu of the n-th row (of the selection, when that row is in it).</summary>
     public void ScriptOpenMenu(int index)
     {
+        _scriptMenu = null;
         if (index < 0 || index >= Grid.Items.Count || Grid.Items[index] is not PlayerRowVm p) return;
         if (!Grid.SelectedItems.Contains(p)) Grid.SelectedItem = p;
         var row = (DataGridRow?)Grid.ItemContainerGenerator.ContainerFromIndex(index);
@@ -309,6 +316,7 @@ public partial class PlayersView : UserControl
     {
         var ps = Selected();
         if (ps.Count == 0) return null;
+        if (_vm.PlayerActions.FirstOrDefault(a => a.Id == which) is { } action) return ActionDialog(action, ps.Where(action.AppliesTo).ToList());
         return which switch
         {
             "kick" => KickDialog(ps),
@@ -319,21 +327,38 @@ public partial class PlayersView : UserControl
         };
     }
 
+    /// <summary>For the UI script runner: an item of an addon or a plugin for the selection, as if its dialog said OK with these values.</summary>
+    public void ScriptRunAction(string id, Dictionary<string, string> values)
+    {
+        if (_vm.PlayerActions.FirstOrDefault(a => a.Id == id) is not { } action) return;
+        var targets = Selected().Where(action.AppliesTo).ToList();
+        if (targets.Count > 0) Execute(action, targets, values);
+    }
+
+    /// <summary>For the UI script runner: the items of the open menu ("Tag | header", separators as "---").</summary>
+    public IEnumerable<string> ScriptMenuItems() =>
+        _scriptMenu?.Items.Cast<object>().Select(i => i is MenuItem m ? $"{m.Tag} | {m.Header}{(m.IsEnabled ? "" : " (disabled)")}" : "---") ?? [];
+
+    /// <summary>
+    /// The menu for the selected players. Every item has an order: the built-in ones 100-120 (kick, ban, group),
+    /// 200-221 (gag, mute, jail) and 400-430 (copy, profile); items of addons and plugins go in by theirs, and a
+    /// separator goes between hundreds. Addons can hide built-in items; plugins change the finished menu.
+    /// </summary>
     private ContextMenu BuildPlayerMenu(IReadOnlyList<PlayerRowVm> ps)
     {
         bool ulx = _vm.Players.HasUlx;
         var humans = ps.Where(x => !x.IsBot).ToList();
-        var menu = new ContextMenu();
-        var title = new MenuItem { Header = ps.Count == 1 ? ps[0].Name : $"{ps.Count} players", IsEnabled = false, FontWeight = FontWeights.SemiBold };
-        if (ps.Count == 1 && ps[0].Avatar is { } av)
-            title.Icon = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Fill = new ImageBrush(av) { Stretch = Stretch.UniformToFill } };
-        else if (ps.Count > 1)
-            title.Icon = new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.Resources["Font.Icons"], FontSize = 14 };
-        menu.Items.Add(title);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Kick…", "", () => Kick(ps)));
+        var entries = new List<(int Order, MenuItem Item)>();
+        void Add(int order, string id, MenuItem item)
+        {
+            if (_vm.PlayerActionsHidden.Contains(id)) return;
+            item.Tag = id;
+            entries.Add((order, item));
+        }
+
+        Add(100, "kick", Item("Kick…", "", () => Kick(ps)));
         // Without ULX a ban is by SteamID: bots have none.
-        menu.Items.Add(Item("Ban…", "", () => Ban(ps), enabled: humans.Count > 0 || ulx));
+        Add(110, "ban", Item("Ban…", "", () => Ban(ps), enabled: humans.Count > 0 || ulx));
         var groups = Item("Set group", "", null);
         foreach (var g in _vm.Players.Groups)
         {
@@ -342,33 +367,137 @@ public partial class PlayersView : UserControl
             groups.Items.Add(gi);
         }
         groups.IsEnabled = humans.Count > 0;
-        menu.Items.Add(groups);
-        menu.Items.Add(new Separator());
-        Toggle(menu, ps, x => x.Gagged, "Gag (voice)", "Ungag (voice)", "\uE74F", x => $"ulx gag {x.UlxTarget}", x => $"ulx ungag {x.UlxTarget}", ulx);
-        Toggle(menu, ps, x => x.Muted, "Mute (chat)", "Unmute (chat)", "\uE8BD", x => $"ulx mute {x.UlxTarget}", x => $"ulx unmute {x.UlxTarget}", ulx);
+        Add(120, "group", groups);
+        foreach (var (order, item) in Toggle(ps, x => x.Gagged, "Gag (voice)", "Ungag (voice)", "", x => $"ulx gag {x.UlxTarget}", x => $"ulx ungag {x.UlxTarget}", ulx))
+            Add(200 + order, "gag", item);
+        foreach (var (order, item) in Toggle(ps, x => x.Muted, "Mute (chat)", "Unmute (chat)", "", x => $"ulx mute {x.UlxTarget}", x => $"ulx unmute {x.UlxTarget}", ulx))
+            Add(210 + order, "mute", item);
         var free = ps.Where(x => !x.Jailed).ToList();
         var jailed = ps.Where(x => x.Jailed).ToList();
-        if (free.Count > 0) menu.Items.Add(Item(Part("Jail…", free, ps), "", () => Jail(free), enabled: ulx));
-        if (jailed.Count > 0) menu.Items.Add(Item(Part("Unjail", jailed, ps), "", () => RunAll(jailed.Select(x => $"ulx unjail {x.UlxTarget}")), enabled: ulx));
-        menu.Items.Add(new Separator());
+        if (free.Count > 0) Add(220, "jail", Item(Part("Jail…", free, ps), "", () => Jail(free), enabled: ulx));
+        if (jailed.Count > 0) Add(221, "jail", Item(Part("Unjail", jailed, ps), "", () => RunAll(jailed.Select(x => $"ulx unjail {x.UlxTarget}")), enabled: ulx));
         // Several at once: separated by spaces.
-        menu.Items.Add(Item(ps.Count == 1 ? "Copy name" : "Copy names", "", () => Copy(string.Join(" ", ps.Select(x => x.Name)))));
-        menu.Items.Add(Item(humans.Count > 1 ? "Copy SteamIDs" : "Copy SteamID", "", () => Copy(string.Join(" ", humans.Select(x => x.SteamId))), enabled: humans.Count > 0));
+        Add(400, "copy", Item(ps.Count == 1 ? "Copy name" : "Copy names", "", () => Copy(string.Join(" ", ps.Select(x => x.Name)))));
+        Add(410, "copy", Item(humans.Count > 1 ? "Copy SteamIDs" : "Copy SteamID", "", () => Copy(string.Join(" ", humans.Select(x => x.SteamId))), enabled: humans.Count > 0));
         var sid64 = humans.Where(x => x.SteamId64.Length > 0).ToList();
-        menu.Items.Add(Item(sid64.Count > 1 ? "Copy SteamID64s" : "Copy SteamID64", "", () => Copy(string.Join(" ", sid64.Select(x => x.SteamId64))), enabled: sid64.Count > 0));
+        Add(420, "copy", Item(sid64.Count > 1 ? "Copy SteamID64s" : "Copy SteamID64", "", () => Copy(string.Join(" ", sid64.Select(x => x.SteamId64))), enabled: sid64.Count > 0));
         var profiles = ps.Where(x => x.ProfileUrl.Length > 0).ToList();
-        menu.Items.Add(Item(profiles.Count > 1 ? "Open Steam profiles" : "Open Steam profile", "", () => OpenProfiles(profiles), enabled: profiles.Count > 0));
+        Add(430, "profile", Item(profiles.Count > 1 ? "Open Steam profiles" : "Open Steam profile", "", () => OpenProfiles(profiles), enabled: profiles.Count > 0));
+
+        // Items of addons and plugins: for the selected players they apply to (none: not shown).
+        foreach (var a in _vm.PlayerActions.ToList())
+        {
+            var targets = ps.Where(a.AppliesTo).ToList();
+            if (targets.Count == 0) continue;
+            // multi = false: only while one player is selected.
+            bool one = a.Multi || ps.Count == 1;
+            var item = Item(Part(a.Text + (a.Fields.Count > 0 ? "…" : ""), targets, ps), a.Icon, () => RunAction(a, targets), enabled: one);
+            if (!one)
+            {
+                item.ToolTip = "For one player at a time";
+                ToolTipService.SetShowOnDisabled(item, true);
+            }
+            item.Tag = a.Id;
+            entries.Add((a.Order, item));
+        }
+
+        var menu = new ContextMenu();
+        var title = new MenuItem { Header = ps.Count == 1 ? ps[0].Name : $"{ps.Count} players", IsEnabled = false, FontWeight = FontWeights.SemiBold };
+        if (ps.Count == 1 && ps[0].Avatar is { } av)
+            title.Icon = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Fill = new ImageBrush(av) { Stretch = Stretch.UniformToFill } };
+        else if (ps.Count > 1)
+            title.Icon = new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.Resources["Font.Icons"], FontSize = 14 };
+        menu.Items.Add(title);
+        int? section = null;
+        // OrderBy keeps the built-in order among equal numbers.
+        foreach (var (order, item) in entries.OrderBy(e => e.Order))
+        {
+            int s = (int)Math.Floor(order / 100.0);
+            if (section != s) menu.Items.Add(new Separator());
+            section = s;
+            menu.Items.Add(item);
+        }
+        _vm.RaisePlayerMenuOpening(ps, menu);
+        TidySeparators(menu);
         return menu;
     }
 
-    /// <summary>"Gag (voice)" for all of them, or, when some are gagged and some not, both items for their part.</summary>
-    private void Toggle(ContextMenu menu, IReadOnlyList<PlayerRowVm> ps, Func<PlayerRowVm, bool> isOn, string onText, string offText, string icon,
+    /// <summary>No separator at an end or next to another (after items were hidden or a plugin removed some).</summary>
+    private static void TidySeparators(ContextMenu menu)
+    {
+        for (int i = menu.Items.Count - 1; i >= 0; i--)
+        {
+            if (menu.Items[i] is not Separator) continue;
+            bool last = i == menu.Items.Count - 1;
+            bool doubled = i + 1 < menu.Items.Count && menu.Items[i + 1] is Separator;
+            if (last || doubled || i == 0) menu.Items.RemoveAt(i);
+        }
+    }
+
+    /// <summary>"Gag (voice)" for all of them, or, when some are gagged and some not, both items for their part (order 0 and 1).</summary>
+    private IEnumerable<(int, MenuItem)> Toggle(IReadOnlyList<PlayerRowVm> ps, Func<PlayerRowVm, bool> isOn, string onText, string offText, string icon,
         Func<PlayerRowVm, string> onCmd, Func<PlayerRowVm, string> offCmd, bool enabled)
     {
         var off = ps.Where(x => !isOn(x)).ToList();
         var on = ps.Where(isOn).ToList();
-        if (off.Count > 0) menu.Items.Add(Item(Part(onText, off, ps), icon, () => RunAll(off.Select(onCmd)), enabled));
-        if (on.Count > 0) menu.Items.Add(Item(Part(offText, on, ps), icon, () => RunAll(on.Select(offCmd)), enabled));
+        if (off.Count > 0) yield return (0, Item(Part(onText, off, ps), icon, () => RunAll(off.Select(onCmd)), enabled));
+        if (on.Count > 0) yield return (1, Item(Part(offText, on, ps), icon, () => RunAll(on.Select(offCmd)), enabled));
+    }
+
+    /// <summary>An item of an addon or a plugin: its dialog (fields, a question), then its command, its Lua or the plugin.</summary>
+    private void RunAction(PlayerActionDef a, IReadOnlyList<PlayerRowVm> targets)
+    {
+        if (ActionDialog(a, targets) is { } d)
+        {
+            if (d.ShowDialog() != true) return;
+            Execute(a, targets, a.Fields.ToDictionary(f => f.Id, f => d[f.Id]));
+        }
+        else Execute(a, targets, new Dictionary<string, string>());
+    }
+
+    private void Execute(PlayerActionDef a, IReadOnlyList<PlayerRowVm> targets, Dictionary<string, string> values)
+    {
+        var typed = new Dictionary<string, object>();
+        foreach (var f in a.Fields)
+        {
+            var v = values.GetValueOrDefault(f.Id, f.Default);
+            if (f.Number)
+            {
+                // "NaN", "Infinity", "1e400" parse as numbers, but are none (and JSON cannot carry them).
+                if (!double.TryParse(v.Trim().Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n))
+                {
+                    _vm.Notify($"{f.Label}: a number is needed.", NotifyKind.Warning);
+                    return;
+                }
+                v = n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                typed[f.Id] = n;
+            }
+            else typed[f.Id] = v;
+            values[f.Id] = v;
+        }
+        // A plugin's code, else the addon's onRun (it wins over a command), else the command.
+        if (a.PluginRun != null) a.PluginRun(targets.Select(t => t.ToInfo()).ToList());
+        else if (a.LuaRun)
+        {
+            _vm.Request("paction", new { id = a.LuaId, uids = targets.Select(t => t.UserId).ToArray(), values = typed });
+            _vm.Notify($"› {a.Text}: {Who(targets)}", NotifyKind.Info);
+        }
+        else if (a.Command != null)
+            RunAll(a.PerPlayer ? targets.Select(t => PlayerActionDef.Expand(a.Command, t, values)) : [PlayerActionDef.Expand(a.Command, null, values)]);
+    }
+
+    /// <summary>The dialog of an action with fields or a question, else null.</summary>
+    private PromptDialog? ActionDialog(PlayerActionDef a, IReadOnlyList<PlayerRowVm> targets)
+    {
+        if ((a.Fields.Count == 0 && a.Confirm == null) || targets.Count == 0) return null;
+        var question = a.Confirm?.Replace("{players}", Who(targets)).Replace("{name}", targets[0].Name).Replace("{count}", targets.Count.ToString());
+        var d = new PromptDialog(Owner, targets.Count == 1 ? a.Text : $"{a.Text} · {targets.Count} players", question, a.Text, a.Danger).Players(Faces(targets));
+        foreach (var f in a.Fields)
+        {
+            if (f.Choices is { Count: > 0 } choices) d.Choice(f.Id, f.Label, choices, f.Default, f.Editable);
+            else d.Text(f.Id, f.Label, f.Default);
+        }
+        return d;
     }
 
     private static string Part(string text, IReadOnlyCollection<PlayerRowVm> part, IReadOnlyCollection<PlayerRowVm> all) =>

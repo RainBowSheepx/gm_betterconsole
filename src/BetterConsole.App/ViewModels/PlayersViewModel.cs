@@ -29,6 +29,9 @@ public sealed partial class PlayerRowVm : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(InText))] private double inBytes = double.NaN;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(OutText))] private double outBytes = double.NaN;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(TimeText))] private double timeConnected;
+    /// <summary>cl_updaterate and cl_cmdrate of the client (what it asks for; NaN for bots).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(UpdateRateText))] private double updateRate = double.NaN;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CmdRateText))] private double cmdRate = double.NaN;
     [ObservableProperty] private string team = "";
     [ObservableProperty] private int frags;
     [ObservableProperty] private int deaths;
@@ -51,6 +54,11 @@ public sealed partial class PlayerRowVm : ObservableObject
     public string ChokeText => double.IsNaN(Choke) ? "—" : $"{Choke:F0}%";
     public string InText => double.IsNaN(InBytes) ? "—" : ProfileRow.FormatBytes(InBytes) + "/s";
     public string OutText => double.IsNaN(OutBytes) ? "—" : ProfileRow.FormatBytes(OutBytes) + "/s";
+    public string UpdateRateText => double.IsNaN(UpdateRate) || UpdateRate <= 0 ? "—" : $"{UpdateRate:0.#}";
+    public string CmdRateText => double.IsNaN(CmdRate) || CmdRate <= 0 ? "—" : $"{CmdRate:0.#}";
+
+    /// <summary>The player menu items of addons whose filter accepts this player (their Lua ids).</summary>
+    public HashSet<string> ActionFlags { get; } = new();
     public string TimeText
     {
         get
@@ -64,6 +72,20 @@ public sealed partial class PlayerRowVm : ObservableObject
     public string UlxTarget => "\"$" + (UlxId ?? (IsBot ? UserId.ToString() : SteamId)) + "\"";
 
     public string ProfileUrl => string.IsNullOrEmpty(SteamId64) || IsBot ? "" : $"https://steamcommunity.com/profiles/{SteamId64}";
+
+    /// <summary>What plugins see of the player.</summary>
+    public BetterConsole.Sdk.PlayerInfo ToInfo() => new()
+    {
+        UserId = UserId,
+        Name = Name,
+        SteamId = SteamId,
+        SteamId64 = IsBot ? "" : SteamId64,
+        IsBot = IsBot,
+        Group = Group,
+        Ip = Ip,
+        Ping = Ping,
+        Connected = TimeSpan.FromSeconds(TimeConnected),
+    };
 }
 
 public sealed partial class PlayersVm : ObservableObject
@@ -143,6 +165,12 @@ public sealed partial class PlayersVm : ObservableObject
                 row.Fps = StatsVm.Num(p, "fps");
                 row.Load = LoadMeasured ? StatsVm.Num0(p, "load") : double.NaN;
                 row.TimeConnected = StatsVm.Num0(p, "time");
+                row.UpdateRate = StatsVm.Num(p, "upd");
+                row.CmdRate = StatsVm.Num(p, "cmdr");
+                row.ActionFlags.Clear();
+                if (p.TryGetProperty("act", out var act) && act.ValueKind == JsonValueKind.Object)
+                    foreach (var a in act.EnumerateObject())
+                        if (a.Value.ValueKind == JsonValueKind.True) row.ActionFlags.Add(a.Name);
                 row.Team = StatsVm.Str(p, "team") ?? "";
                 row.Frags = (int)StatsVm.Num0(p, "frags");
                 row.Deaths = (int)StatsVm.Num0(p, "deaths");
@@ -207,4 +235,139 @@ public sealed partial class PlayersVm : ObservableObject
 
     private void LoadAvatar(PlayerRowVm row) =>
         row.Avatar = AvatarCache.Get(row.SteamId64, img => { if (_showAvatars && _byId.ContainsValue(row)) row.Avatar = img; });
+}
+
+/// <summary>A field of the dialog of a player action: text, a number or a choice.</summary>
+public sealed record PlayerActionField(string Id, string Label, string Default, bool Number, IReadOnlyList<(string Text, string Value)>? Choices, bool Editable);
+
+/// <summary>
+/// An item of an addon (BetterConsole.AddPlayerAction) or a plugin (IUiHost.AddPlayerAction) in the right-click
+/// menu of the Players tab.
+/// </summary>
+public sealed class PlayerActionDef
+{
+    /// <summary>"lua:id" or "plugin:id".</summary>
+    public required string Id { get; init; }
+    public required string Text { get; init; }
+    /// <summary>A glyph of Segoe Fluent Icons, or empty.</summary>
+    public string Icon { get; init; } = "";
+    public int Order { get; init; } = 300;
+    /// <summary>A console command; placeholders: see <see cref="Expand"/>.</summary>
+    public string? Command { get; init; }
+    public string? Confirm { get; init; }
+    public bool Danger { get; init; }
+    public bool Bots { get; init; } = true;
+    public bool Multi { get; init; } = true;
+    /// <summary>The addon's filter decides who it is for (the "act" flags of the player list).</summary>
+    public bool Filtered { get; init; }
+    /// <summary>The addon runs it in Lua (onRun).</summary>
+    public bool LuaRun { get; init; }
+    public IReadOnlyList<PlayerActionField> Fields { get; init; } = [];
+    public Action<IReadOnlyList<BetterConsole.Sdk.PlayerInfo>>? PluginRun { get; init; }
+    public Func<BetterConsole.Sdk.PlayerInfo, bool>? PluginFilter { get; init; }
+
+    public string LuaId => Id.StartsWith("lua:", StringComparison.Ordinal) ? Id[4..] : Id;
+
+    public bool AppliesTo(PlayerRowVm p)
+    {
+        if (!Bots && p.IsBot) return false;
+        if (Filtered && !p.ActionFlags.Contains(LuaId)) return false;
+        if (PluginFilter == null) return true;
+        try { return PluginFilter(p.ToInfo()); }
+        catch (Exception ex)
+        {
+            Services.Log.Write($"player action {Id} filter: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex PlayerPlaceholder =
+        new(@"\{(target|userid|steamid|steamid64|name)\}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>The command names a player: it runs once for each, else once.</summary>
+    public bool PerPlayer => Command != null && PlayerPlaceholder.IsMatch(Command);
+
+    /// <summary>
+    /// {target} (ULX's "$id", quoted), {userid}, {steamid}, {steamid64}, {name} and {field} (the dialog's values).
+    /// Names and values lose quotes, semicolons and line breaks, so they cannot end the command.
+    /// </summary>
+    public static string Expand(string template, PlayerRowVm? p, IReadOnlyDictionary<string, string> values)
+    {
+        return System.Text.RegularExpressions.Regex.Replace(template, @"\{([A-Za-z0-9_]+)\}", m =>
+        {
+            var key = m.Groups[1].Value;
+            if (p != null)
+            {
+                switch (key.ToLowerInvariant())
+                {
+                    case "target": return p.UlxTarget;
+                    case "userid": return p.UserId.ToString();
+                    case "steamid": return p.SteamId;
+                    case "steamid64": return p.SteamId64;
+                    case "name": return Clean(p.Name);
+                }
+            }
+            return values.TryGetValue(key, out var v) ? Clean(v) : m.Value;
+        });
+    }
+
+    public static string Clean(string s) => s.Replace("\"", "'").Replace(";", ",").Replace("\r", " ").Replace("\n", " ").Trim();
+
+    /// <summary>The "pa" message of the addon.</summary>
+    public static PlayerActionDef FromLua(JsonElement m)
+    {
+        var fields = new List<PlayerActionField>();
+        if (m.TryGetProperty("fields", out var fs) && fs.ValueKind is JsonValueKind.Array or JsonValueKind.Object)
+        {
+            // An array of fields (Lua's TableToJSON makes an object of a table with holes).
+            var items = fs.ValueKind == JsonValueKind.Array ? fs.EnumerateArray().ToList() : fs.EnumerateObject().OrderBy(p => int.TryParse(p.Name, out var n) ? n : int.MaxValue).Select(p => p.Value).ToList();
+            foreach (var f in items)
+            {
+                // One field per id (a second one would have no value of its own).
+                if (f.ValueKind != JsonValueKind.Object || StatsVm.Str(f, "id") is not { Length: > 0 } fid || fields.Any(x => x.Id == fid)) continue;
+                List<(string, string)>? choices = null;
+                if (f.TryGetProperty("choices", out var cs) && cs.ValueKind == JsonValueKind.Array)
+                {
+                    choices = new();
+                    foreach (var c in cs.EnumerateArray())
+                    {
+                        if (c.ValueKind == JsonValueKind.Array && c.GetArrayLength() >= 2) choices.Add((Plain(c[0]), Plain(c[1])));
+                        else if (c.ValueKind == JsonValueKind.Object) choices.Add((Plain(c.TryGetProperty("text", out var t) ? t : default), Plain(c.TryGetProperty("value", out var v) ? v : default)));
+                        else choices.Add((Plain(c), Plain(c)));
+                    }
+                }
+                fields.Add(new PlayerActionField(fid, StatsVm.Str(f, "text") ?? fid, f.TryGetProperty("default", out var d) ? Plain(d) : "",
+                    StatsVm.Str(f, "type") == "number", choices, f.TryGetProperty("editable", out var e) && e.ValueKind == JsonValueKind.True));
+            }
+        }
+        var icon = StatsVm.Str(m, "icon");
+        var order = StatsVm.Num(m, "order");
+        return new PlayerActionDef
+        {
+            Id = "lua:" + (StatsVm.Str(m, "id") ?? "?"),
+            Text = StatsVm.Str(m, "text") ?? StatsVm.Str(m, "id") ?? "?",
+            Icon = string.IsNullOrWhiteSpace(icon) ? "" : LuaTabVm.ParseIcon(icon),
+            Order = double.IsNaN(order) ? 300 : (int)Math.Clamp(order, -100000, 100000),
+            Command = StatsVm.Str(m, "command"),
+            Confirm = StatsVm.Str(m, "confirm"),
+            Danger = Flag(m, "danger", false),
+            Bots = Flag(m, "bots", true),
+            Multi = Flag(m, "multi", true),
+            Filtered = Flag(m, "filtered", false),
+            LuaRun = Flag(m, "run", false),
+            Fields = fields,
+        };
+    }
+
+    private static bool Flag(JsonElement m, string name, bool fallback) =>
+        m.TryGetProperty(name, out var v) ? v.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => fallback } : fallback;
+
+    private static string Plain(JsonElement e) => e.ValueKind switch
+    {
+        JsonValueKind.String => e.GetString() ?? "",
+        JsonValueKind.Number => e.GetDouble().ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => "",
+    };
 }

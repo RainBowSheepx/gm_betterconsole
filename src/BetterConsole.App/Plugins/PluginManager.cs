@@ -139,7 +139,7 @@ public sealed class PluginManager
 }
 
 /// <summary>What a plugin sees of the app (all calls on the UI thread): one server and its window.</summary>
-internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, ILuaBridge, IUiHost, IDisposable
+internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, ILuaBridge, IUiHost, IStatsHost, IDisposable
 {
     private readonly string _id;
     private readonly ServerViewModel _vm;
@@ -178,6 +178,10 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
                 Raise(MessageReceived, new BridgeMessage(t, data));
             }
             else Raise(MessageReceived, new BridgeMessage(type, msg));
+        };
+        vm.PlayerMenuOpening += (players, menu) =>
+        {
+            if (PlayerMenuOpening != null) Raise(PlayerMenuOpening, new PlayerMenuEventArgs(players.Select(p => p.ToInfo()).ToList(), menu));
         };
         _themeChanged = t => Raise(ThemeChanged, t.Name);
         Themes.ThemeManager.Changed += _themeChanged;
@@ -259,14 +263,73 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
 
     public void RemoveTab(string id) => _vm.RemoveTab("plugin:" + id);
 
+    /// <summary>Each plugin has its own ids: two plugins that both call something "map" do not replace each other's.</summary>
+    private string Key(string id) => $"plugin:{_id}:{id}";
+
     public IStatusItem AddStatusItem(string id, string text, string? tooltip = null, int order = 1000)
     {
-        var item = new StatusItemVm("plugin:" + id, order) { Text = text, Tooltip = tooltip };
-        int i = 0;
-        while (i < _vm.ExtraStatus.Count && _vm.ExtraStatus[i].Order <= order) i++;
-        _vm.ExtraStatus.Insert(i, item);
+        RemoveStatusItem(id);
+        var item = new StatusItemVm(Key(id), order) { ShortId = id, Text = text, Tooltip = tooltip, UserHidden = _vm.Settings.StatusHidden.Contains(Key(id)) };
+        _vm.InsertStatusItem(item);
         return item;
     }
+
+    public void RemoveStatusItem(string id)
+    {
+        if (_vm.ExtraStatus.FirstOrDefault(s => s.Id == Key(id)) is { } item) _vm.ExtraStatus.Remove(item);
+    }
+
+    // The Statistics tab
+    public IStatsHost Stats => this;
+
+    public IStatCard AddCard(string id, string title, int order = 1000)
+    {
+        var card = new StatWidgetVm { Id = Key(id), Kind = "stat", Title = title, Order = order };
+        _vm.StatsExtras.Add(card);
+        return card;
+    }
+
+    public IStatChart AddChart(string id, string title, IReadOnlyList<string> series, string? unit = null, bool wide = false, int order = 1000)
+    {
+        var chart = new ChartWidgetVm { Id = Key(id), Kind = "chart", Title = title, Unit = unit, Order = order, Span = wide ? 12 : 6, SpanGiven = true };
+        chart.SetSeries(series);
+        _vm.StatsExtras.Add(chart);
+        return chart;
+    }
+
+    public void AddSection(string id, string? title, Func<FrameworkElement> content, int order = 1000) =>
+        _vm.StatsExtras.Add(new SectionWidgetVm(content) { Id = Key(id), Kind = "section", Title = title, Order = order });
+
+    void IStatsHost.Remove(string id) => _vm.StatsExtras.Remove(Key(id));
+
+    public void SetBuiltInVisible(string id, bool visible) => _vm.SetStatHidden(_id, id, !visible);
+
+    // The player menu
+    public void AddPlayerAction(string id, string text, Action<IReadOnlyList<PlayerInfo>> run, string? icon = null, int order = 300, Func<PlayerInfo, bool>? appliesTo = null)
+    {
+        RemovePlayerAction(id);
+        _vm.PlayerActions.Add(new PlayerActionDef
+        {
+            Id = Key(id),
+            Text = text,
+            Icon = string.IsNullOrWhiteSpace(icon) ? "" : LuaTabVm.ParseIcon(icon),
+            Order = order,
+            PluginRun = players =>
+            {
+                try { run(players); }
+                catch (Exception ex)
+                {
+                    Services.Log.Write($"[{_id}] player action {id}: {ex}");
+                    _vm.Notify($"Plugin {_id}: \"{text}\" failed: {ex.Message}", NotifyKind.Error);
+                }
+            },
+            PluginFilter = appliesTo,
+        });
+    }
+
+    public void RemovePlayerAction(string id) => _vm.PlayerActions.RemoveAll(a => a.Id == Key(id));
+
+    public event EventHandler<PlayerMenuEventArgs>? PlayerMenuOpening;
 
     public void Notify(string message, NotifyKind kind = NotifyKind.Info) => _vm.Notify(message, kind);
 

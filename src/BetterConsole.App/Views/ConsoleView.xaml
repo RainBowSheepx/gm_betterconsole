@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit"
              xmlns:vm="clr-namespace:BetterConsole.App.ViewModels">
-    <Grid Margin="12,8,12,10">
+    <Grid Margin="{DynamicResource Pad.Page}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -51,7 +51,7 @@
 
         <!-- output -->
         <Border Grid.Row="1" Background="{DynamicResource Brush.ConsoleBackground}" BorderBrush="{DynamicResource Brush.Border}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.Large}" ClipToBounds="True">
+                BorderThickness="1" CornerRadius="{DynamicResource Radius.Large}" ClipToBounds="True">
             <Grid>
                 <ae:TextEditor x:Name="Output" IsReadOnly="True" ShowLineNumbers="False" Padding="10,8,4,8"
                                Background="Transparent" Foreground="{DynamicResource Brush.ConsoleText}"
@@ -73,7 +73,7 @@
                 <Button x:Name="JumpButton" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,14" Visibility="Collapsed"
                         Style="{StaticResource Btn.Primary}" Padding="12,6" Click="OnJumpToEnd" ToolTip="Scroll to the newest line and follow the output">
                     <Button.Effect>
-                        <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.35" />
+                        <DynamicResource ResourceKey="Effect.Shadow" />
                     </Button.Effect>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE74B;" FontSize="12" Foreground="{DynamicResource Brush.OnAccent}" />
@@ -85,7 +85,7 @@
 
         <!-- input: its own container, never covered by output -->
         <Border Grid.Row="2" Margin="0,8,0,0" Background="{DynamicResource Brush.InputBackground}" BorderBrush="{DynamicResource Brush.Border}"
-                BorderThickness="1" CornerRadius="{StaticResource Radius.Large}" x:Name="InputBorder">
+                BorderThickness="1" CornerRadius="{DynamicResource Radius.Large}" x:Name="InputBorder">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -95,7 +95,7 @@
                 <TextBlock Text="&#xE76C;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Margin="12,0,4,0" VerticalAlignment="Center"
                            Foreground="{DynamicResource Brush.Accent}" />
                 <TextBox x:Name="Input" Grid.Column="1" BorderThickness="0" Background="Transparent" FontFamily="{StaticResource Font.Mono}" FontSize="13.5"
-                         Padding="6,8" PreviewKeyDown="OnInputKeyDown" TextChanged="OnInputChanged" LostKeyboardFocus="OnInputLostFocus"
+                         Padding="{DynamicResource Pad.ConsoleInput}" PreviewKeyDown="OnInputKeyDown" TextChanged="OnInputChanged" LostKeyboardFocus="OnInputLostFocus"
                          AcceptsReturn="False" AcceptsTab="False" />
                 <TextBlock x:Name="Placeholder" Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
                            FontFamily="{StaticResource Font.Mono}" FontSize="13.5" Foreground="{DynamicResource Brush.TextMuted}"
@@ -110,10 +110,10 @@
                 <Popup x:Name="SuggestPopup" PlacementTarget="{Binding ElementName=InputBorder}" Placement="Bottom" VerticalOffset="4"
                        AllowsTransparency="True" StaysOpen="True" Focusable="False" PopupAnimation="None">
                     <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.BorderStrong}" BorderThickness="1"
-                            CornerRadius="{StaticResource Radius}" Padding="4" Margin="0,0,10,10"
+                            CornerRadius="{DynamicResource Radius}" Padding="4" Margin="0,0,10,10"
                             Width="{Binding ActualWidth, ElementName=InputBorder}" MaxWidth="900" HorizontalAlignment="Left">
                         <Border.Effect>
-                            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.4" />
+                            <DynamicResource ResourceKey="Effect.Shadow" />
                         </Border.Effect>
                         <DockPanel>
                             <TextBlock x:Name="SuggestFooter" DockPanel.Dock="Bottom" Margin="8,4,8,2" FontSize="11" Style="{StaticResource Text.Muted}" />

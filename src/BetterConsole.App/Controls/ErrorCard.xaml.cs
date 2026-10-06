@@ -36,10 +36,12 @@ public partial class ErrorCard : UserControl
 
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ErrorEntryVm.IsExpanded)) ApplyExpanded(animate: true);
+        if (e.PropertyName == nameof(ErrorEntryVm.IsExpanded)) ApplyExpanded(animate: !Themes.Look.Compact);
         else if (e.PropertyName == nameof(ErrorEntryVm.IsFresh) && _vm is { IsFresh: true })
         {
             _vm.IsFresh = false;
+            // Compact mode: no animations.
+            if (Themes.Look.Compact) return;
             var anim = new DoubleAnimation(0.9, 0, TimeSpan.FromMilliseconds(1100)) { EasingFunction = new QuadraticEase() };
             Flash.BeginAnimation(OpacityProperty, anim);
         }

@@ -36,6 +36,13 @@ public sealed class AppSettings
     public bool ShowAvatars { get; set; } = true;
 
     public string Theme { get; set; } = "Dark";
+    /// <summary>
+    /// Compact mode: smaller and plainer (no themes, shadows, animations or avatars), for the least CPU, GPU
+    /// and memory; everything works as before.
+    /// </summary>
+    public bool CompactMode { get; set; }
+    /// <summary>Items of the status bar the user hid (right-click it): built-in ids ("map", "sv"…) and "lua:id" / "plugin:id".</summary>
+    public List<string> StatusHidden { get; set; } = new();
     public string ConsoleFont { get; set; } = "Cascadia Mono";
     public double ConsoleFontSize { get; set; } = 13;
     public int ConsoleMaxLines { get; set; } = 20000;
@@ -49,7 +56,14 @@ public sealed class AppSettings
     public bool CompleteServerCommandsOnly { get; set; } = true;
     public int MaxErrorsPerList { get; set; } = 500;
 
-    public List<string> PlayerColumnsHidden { get; set; } = ["IP", "In", "Out", "Choke", "Team", "Score"];
+    public List<string> PlayerColumnsHidden { get; set; } = [.. DefaultHiddenColumns];
+    public static readonly string[] DefaultHiddenColumns = ["IP", "In", "Out", "Choke", "Team", "Score", "cl_updaterate", "cl_cmdrate"];
+    /// <summary>
+    /// The Players columns this settings file knows. A column a newer version adds starts hidden when it is
+    /// hidden by default, also for settings saved before it existed (default: the columns of 0.2).
+    /// </summary>
+    public List<string> PlayerColumnsKnown { get; set; } =
+        ["Nick", "SteamID", "Group", "Load ms", "Loss", "Ping", "FPS", "Time", "IP", "In", "Out", "Choke", "Team", "Score"];
     /// <summary>Widths of the Players columns the user changed ("150", "2.4*", "Auto"), by header.</summary>
     public Dictionary<string, string> PlayerColumnSizes { get; set; } = new();
     /// <summary>Order of the Players columns (headers), when the user moved them.</summary>
@@ -140,6 +154,8 @@ public sealed class AppSettings
         PlayerColumnSizes ??= new();
         PlayerColumnOrder ??= new();
         PlayerColumnsHidden ??= new();
+        PlayerColumnsKnown ??= new();
+        StatusHidden ??= new();
     }
 
     public void Save()

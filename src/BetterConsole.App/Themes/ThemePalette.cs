@@ -111,6 +111,34 @@ public sealed class ThemePalette
 
     public static IReadOnlyList<ThemePalette> BuiltIn { get; } = [Dark, Light, Midnight, Graphite];
 
+    /// <summary>The palette of compact mode (not a theme to choose): flat, neutral greys and few tints.</summary>
+    public static readonly ThemePalette Compact = new()
+    {
+        Name = "Compact", IsDark = true, IsBuiltIn = true,
+        Background = "#1E1E1E", Panel = "#252526", Surface = "#2A2A2C", SurfaceHover = "#37373A", SurfaceActive = "#434346",
+        Border = "#3A3A3C", BorderStrong = "#4E4E52",
+        Text = "#D8D8D8", TextSecondary = "#B4B4B4", TextMuted = "#8A8A8A",
+        Accent = "#3D8EF0", AccentHover = "#5A9FF2", AccentSoft = "#24405F", OnAccent = "#FFFFFF",
+        Danger = "#F05252", DangerSoft = "#4A2323", Warning = "#D6A520", WarningSoft = "#433716", Success = "#43B95B", SuccessSoft = "#1F3A26", Info = "#4FB8EE",
+        ConsoleBackground = "#181818", ConsoleText = "#D0D0D0", ConsoleSelection = "#24405F", ConsoleCommand = "#8CBEF5", ConsoleApp = "#B79CF0",
+        InputBackground = "#1F1F1F", ScrollThumb = "#454548", ScrollThumbHover = "#58585C", ChartGrid = "#333335",
+        Chart1 = "#3D8EF0", Chart2 = "#D6A520", Chart3 = "#43B95B", Chart4 = "#C77DD9", Chart5 = "#4FB8EE", Chart6 = "#F05252",
+    };
+
+    /// <summary>Compact mode when Windows' apps are light.</summary>
+    public static readonly ThemePalette CompactLight = new()
+    {
+        Name = "Compact", IsDark = false, IsBuiltIn = true,
+        Background = "#F2F2F2", Panel = "#F8F8F8", Surface = "#FFFFFF", SurfaceHover = "#E9E9E9", SurfaceActive = "#DCDCDC",
+        Border = "#D6D6D6", BorderStrong = "#BEBEBE",
+        Text = "#1E1E1E", TextSecondary = "#454545", TextMuted = "#737373",
+        Accent = "#0063C7", AccentHover = "#0070DD", AccentSoft = "#D3E5F8", OnAccent = "#FFFFFF",
+        Danger = "#C4281C", DangerSoft = "#FBE4E2", Warning = "#9A6200", WarningSoft = "#FBF0D4", Success = "#17803A", SuccessSoft = "#DDF2E2", Info = "#0A6CB0",
+        ConsoleBackground = "#FFFFFF", ConsoleText = "#1E1E1E", ConsoleSelection = "#BFD8F5", ConsoleCommand = "#0451A5", ConsoleApp = "#7238C9",
+        InputBackground = "#FFFFFF", ScrollThumb = "#C4C4C4", ScrollThumbHover = "#A9A9A9", ChartGrid = "#E4E4E4",
+        Chart1 = "#0063C7", Chart2 = "#C27400", Chart3 = "#17803A", Chart4 = "#A934C2", Chart5 = "#0A8AB0", Chart6 = "#C4281C",
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,

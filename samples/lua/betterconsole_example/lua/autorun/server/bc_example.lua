@@ -4,7 +4,8 @@ Example: a "Server overview" tab in BetterConsole, made by a server addon.
 Copy this folder into garrysmod/addons/ of your server. When the server runs under BetterConsole the tab
 appears next to the built-in ones; without BetterConsole every call below does nothing.
 
-It shows every widget type: KeyValue, Chart, Log, Table, Buttons, Text, and a status bar item.
+It shows every widget type: KeyValue, Chart, Log, Table, Buttons, Text, a status bar item, a key number and a chart
+on the Statistics tab, and items in the right-click menu of the Players tab.
 ]]
 if not BetterConsole then return end
 
@@ -51,6 +52,44 @@ tab:OnAction(function(widget, id)
 	end
 end)
 
+-- The Statistics tab: a key number among the built-in ones (after "Entities", which has the order 90) and a chart.
+local propsStat = BetterConsole.Stats:Stat("props", { title = "Props", tooltip = "Props and ragdolls on the map (example addon)", order = 95 })
+local propsChart = BetterConsole.Stats:Chart("props_chart", {
+	title = "Props and NPCs",
+	series = { { name = "props", color = "#4F8CFF" }, { name = "NPCs", color = "#F2B33D" } },
+})
+
+-- The right-click menu of the Players tab. Two items with opposite filters make a toggle: each player gets the
+-- one that fits (with several selected, both, each for its part).
+BetterConsole.AddPlayerAction("example_freeze", {
+	text = "Freeze", icon = "E769",
+	filter = function(ply) return not ply:IsFrozen() end,
+	onRun = function(plys) for _, p in ipairs(plys) do p:Freeze(true) end end,
+})
+BetterConsole.AddPlayerAction("example_unfreeze", {
+	text = "Unfreeze", icon = "E768",
+	filter = function(ply) return ply:IsFrozen() end,
+	onRun = function(plys) for _, p in ipairs(plys) do p:Freeze(false) end end,
+})
+-- A dialog first; the values arrive in onRun.
+BetterConsole.AddPlayerAction("example_health", {
+	text = "Set health", icon = "E95E",
+	fields = { { id = "hp", text = "Health", type = "number", default = 100 } },
+	onRun = function(plys, values)
+		local hp = math.Clamp(tonumber(values.hp) or 100, 1, 100000)
+		for _, p in ipairs(plys) do p:SetHealth(hp) end
+		events:Append(("Health %d for %d player(s)"):format(hp, #plys), Color(90, 220, 140))
+	end,
+})
+-- No Lua at all: a console command for each player. ULX's slap needs ULX.
+if ulx then
+	BetterConsole.AddPlayerAction("example_slap", {
+		text = "Slap", icon = "E945", order = 230,
+		fields = { { id = "damage", text = "Damage", choices = { { "None", "0" }, { "10", "10" }, { "50", "50" } }, default = "0" } },
+		command = "ulx slap {target} {damage}",
+	})
+end
+
 local function Owner(ent)
 	local o = ent.GetCreator and ent:GetCreator() or nil
 	return IsValid(o) and o or nil
@@ -86,7 +125,9 @@ timer.Create("bc_example_overview", 2, 0, function()
 		Uptime = string.NiceTime(SysTime()),
 		Props = props,
 	})
-	BetterConsole.SetStatus("example_props", "Props " .. props, "Props on the map (example addon)")
+	BetterConsole.SetStatus("example_props", { label = "Props", text = props, tooltip = "Props on the map (example addon)", name = "Props (example addon)" })
+	propsStat:Set(props, ("%d NPCs"):format(npcs))
+	propsChart:Push(props, npcs)
 end)
 
 hook.Add("PlayerInitialSpawn", "bc_example_overview", function(ply)

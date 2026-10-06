@@ -60,6 +60,7 @@ public sealed partial class ServerViewModel : ObservableObject
         Controller.Sampled += s => _uiActions.Enqueue(() => OnProcessSample(s));
         Controller.Bridge.ConnectionChanged += c => _uiActions.Enqueue(() => OnBridgeConnection(c));
         Controller.Bridge.MessageReceived += (t, m) => _bridgeQueue.Enqueue((t, m, DateTime.Now));
+        StatsExtras = new LuaTabVm("@stats") { ActionSink = (t, w, a) => Request("action", new { tab = t, widget = w, id = a }) };
 
         ServerErrors.MaxItems = Settings.MaxErrorsPerList;
         ClientErrors.MaxItemsPerPlayer = Math.Max(50, Settings.MaxErrorsPerList / 2);
@@ -92,6 +93,32 @@ public sealed partial class ServerViewModel : ObservableObject
     public ObservableCollection<TabVm> Tabs { get; } = new();
     public ObservableCollection<StatusItemVm> ExtraStatus { get; } = new();
     public Dictionary<string, LuaTabVm> LuaTabs { get; } = new();
+    /// <summary>What addons (BetterConsole.Stats) and plugins (IUiHost.Stats) put on the Statistics tab.</summary>
+    public LuaTabVm StatsExtras { get; }
+    /// <summary>Items of addons and plugins in the player menu.</summary>
+    public List<PlayerActionDef> PlayerActions { get; } = new();
+    /// <summary>Built-in items of the player menu an addon hid (BetterConsole.HidePlayerAction).</summary>
+    public HashSet<string> PlayerActionsHidden { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The player menu is about to open (plugins change it): the selected players and the menu.</summary>
+    public event Action<IReadOnlyList<PlayerRowVm>, System.Windows.Controls.ContextMenu>? PlayerMenuOpening;
+
+    public void RaisePlayerMenuOpening(IReadOnlyList<PlayerRowVm> players, System.Windows.Controls.ContextMenu menu) => PlayerMenuOpening?.Invoke(players, menu);
+
+    // Built-in parts of the Statistics tab that are hidden: by the addon (its whole list, sent again on
+    // every change) and by plugins.
+    private readonly HashSet<string> _statsHiddenLua = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<string>> _statsHiddenPlugins = new();
+
+    /// <summary>The built-in parts of the Statistics tab that changed between hidden and shown.</summary>
+    public event Action? StatsHiddenChanged;
+
+    public bool IsStatHidden(string id) => _statsHiddenLua.Contains(id) || _statsHiddenPlugins.Values.Any(s => s.Contains(id));
+
+    public void SetStatHidden(string plugin, string id, bool hidden)
+    {
+        if (!_statsHiddenPlugins.TryGetValue(plugin, out var set)) _statsHiddenPlugins[plugin] = set = new(StringComparer.OrdinalIgnoreCase);
+        if (hidden ? set.Add(id) : set.Remove(id)) StatsHiddenChanged?.Invoke();
+    }
     /// <summary>The plugin instances of this server (each server has its own).</summary>
     public List<Plugins.PluginInstance> PluginInstances { get; } = new();
 
@@ -120,8 +147,7 @@ public sealed partial class ServerViewModel : ObservableObject
         Controller.Pipeline.HideErrors = Settings.HideErrorsInConsole;
         ServerErrors.MaxItems = Settings.MaxErrorsPerList;
         ClientErrors.MaxItemsPerPlayer = Math.Max(50, Settings.MaxErrorsPerList / 2);
-        Players.ShowAvatars = Settings.ShowAvatars;
-        ClientErrors.ShowAvatars = Settings.ShowAvatars;
+        ApplyAvatars();
         UpdateTitle();
         UpdateSchedule();
         SettingsChanged?.Invoke();
@@ -140,8 +166,15 @@ public sealed partial class ServerViewModel : ObservableObject
         _ = FindTab("console")!.Content;
         LuaTabAdded += tab => AddTab(new TabVm("lua:" + tab.Id, tab.Title, tab.Icon, 100 + tab.Order, () => new LuaTabView(tab)));
         LuaTabRemoved += id => RemoveTab("lua:" + id);
-        Players.ShowAvatars = Settings.ShowAvatars;
-        ClientErrors.ShowAvatars = Settings.ShowAvatars;
+        ApplyAvatars();
+    }
+
+    /// <summary>Steam avatars as the settings say; none in compact mode (nothing downloaded or decoded).</summary>
+    public void ApplyAvatars()
+    {
+        bool on = Settings.ShowAvatars && !Settings.CompactMode;
+        Players.ShowAvatars = on;
+        ClientErrors.ShowAvatars = on;
     }
 
 
@@ -414,6 +447,8 @@ public sealed partial class ServerViewModel : ObservableObject
             Players.Clear();
             UpdateBadges();
             CpuText = InText = OutText = SvText = TickText = LoadText = EntsText = LuaText = MemText = PlayersText = "—";
+            // What the addon put into the app stops with the server (the next start may run without it).
+            ForgetLuaExtras();
         }
         if (now == ServerState.Crashed)
         {
@@ -645,9 +680,10 @@ public sealed partial class ServerViewModel : ObservableObject
                 var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
                 t.Tick += (_, _) => { t.Stop(); if (BridgeConnected) Request("cmds"); };
                 t.Start();
-                // Lua tabs are sent again by the addon after a reconnect.
+                // Lua tabs are sent again by the addon after a reconnect, and so is the rest it defined.
                 foreach (var id in LuaTabs.Keys.ToList()) LuaTabRemoved?.Invoke(id);
                 LuaTabs.Clear();
+                ForgetLuaExtras();
                 break;
             case "stats":
                 OnLuaStats(m);
@@ -681,12 +717,36 @@ public sealed partial class ServerViewModel : ObservableObject
                 if (StatsVm.Str(m, "id") is { } rid && LuaTabs.Remove(rid)) LuaTabRemoved?.Invoke(rid);
                 break;
             case "w":
-                if (LuaTabs.TryGetValue(StatsVm.Str(m, "tab") ?? "", out var tab) && StatsVm.Str(m, "id") is { } wid)
+                if (WidgetTab(m) is { } tab && StatsVm.Str(m, "id") is { } wid)
                     tab.Define(wid, StatsVm.Str(m, "kind") ?? "text", m.TryGetProperty("opts", out var o) ? o : default);
                 break;
             case "wd":
-                if (LuaTabs.TryGetValue(StatsVm.Str(m, "tab") ?? "", out var tab2) && StatsVm.Str(m, "id") is { } wid2)
+                if (WidgetTab(m) is { } tab2 && StatsVm.Str(m, "id") is { } wid2)
                     tab2.Data(wid2, StatsVm.Str(m, "op") ?? "set", m.TryGetProperty("data", out var d) ? d : default);
+                break;
+            case "w_rm":
+                if (WidgetTab(m) is { } tab3 && StatsVm.Str(m, "id") is { } wid3) tab3.Remove(wid3);
+                break;
+            case "stats_hide":
+                _statsHiddenLua.Clear();
+                if (m.TryGetProperty("ids", out var hids) && hids.ValueKind == JsonValueKind.Array)
+                    foreach (var h in hids.EnumerateArray())
+                        if (h.ValueKind == JsonValueKind.String) _statsHiddenLua.Add(h.GetString()!);
+                StatsHiddenChanged?.Invoke();
+                break;
+            case "pa":
+                var action = PlayerActionDef.FromLua(m);
+                PlayerActions.RemoveAll(a => a.Id == action.Id);
+                PlayerActions.Add(action);
+                break;
+            case "pa_rm":
+                PlayerActions.RemoveAll(a => a.Id == "lua:" + StatsVm.Str(m, "id"));
+                break;
+            case "pa_hide":
+                PlayerActionsHidden.Clear();
+                if (m.TryGetProperty("ids", out var pids) && pids.ValueKind == JsonValueKind.Array)
+                    foreach (var h in pids.EnumerateArray())
+                        if (h.ValueKind == JsonValueKind.String) PlayerActionsHidden.Add(h.GetString()!);
                 break;
             case "st":
                 OnStatusItem(m);
@@ -755,18 +815,58 @@ public sealed partial class ServerViewModel : ObservableObject
         }
     }
 
+    /// <summary>The tab a widget message is for: an addon tab, or the Statistics tab ("@stats").</summary>
+    private LuaTabVm? WidgetTab(JsonElement m)
+    {
+        var id = StatsVm.Str(m, "tab") ?? "";
+        if (id == StatsExtras.Id) return StatsExtras;
+        return LuaTabs.TryGetValue(id, out var tab) ? tab : null;
+    }
+
+    /// <summary>A new Lua state (or the server stopped): what the addon put into the app goes; it sends it again on connect.</summary>
+    private void ForgetLuaExtras()
+    {
+        StatsExtras.RemoveLuaWidgets();
+        if (_statsHiddenLua.Count > 0)
+        {
+            _statsHiddenLua.Clear();
+            StatsHiddenChanged?.Invoke();
+        }
+        PlayerActions.RemoveAll(a => a.Id.StartsWith("lua:", StringComparison.Ordinal));
+        PlayerActionsHidden.Clear();
+        for (int i = ExtraStatus.Count - 1; i >= 0; i--)
+            if (ExtraStatus[i].Id.StartsWith("lua:", StringComparison.Ordinal)) ExtraStatus.RemoveAt(i);
+    }
+
     private void OnStatusItem(JsonElement m)
     {
         var id = "lua:" + StatsVm.Str(m, "id");
+        var o = StatsVm.Num(m, "order");
+        int order = double.IsNaN(o) ? 500 : (int)Math.Clamp(o, -100000, 100000);
         var item = ExtraStatus.FirstOrDefault(s => s.Id == id);
+        if (item != null && item.Order != order)
+        {
+            ExtraStatus.Remove(item);
+            item = null;
+        }
         if (item == null)
         {
-            item = new StatusItemVm(id, 500);
-            ExtraStatus.Add(item);
+            item = new StatusItemVm(id, order) { UserHidden = Settings.StatusHidden.Contains(id) };
+            InsertStatusItem(item);
         }
         item.Text = StatsVm.Str(m, "text") ?? "";
+        item.Label = StatsVm.Str(m, "label");
+        item.Name = StatsVm.Str(m, "name");
         item.Tooltip = StatsVm.Str(m, "tip");
         item.Argb = Themes.ThemeManager.TryParse(StatsVm.Str(m, "color"), out var c) ? 0xFF000000u | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B : 0;
+    }
+
+    /// <summary>Into the status bar by its order (addons and plugins alike).</summary>
+    public void InsertStatusItem(StatusItemVm item)
+    {
+        int i = 0;
+        while (i < ExtraStatus.Count && ExtraStatus[i].Order <= item.Order) i++;
+        ExtraStatus.Insert(i, item);
     }
 
     private void OnBridgeError(JsonElement m)

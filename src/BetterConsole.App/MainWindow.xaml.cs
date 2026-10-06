@@ -90,6 +90,7 @@ public partial class MainWindow : Window
         vm.PropertyChanged += OnVmChanged;
         vm.Tabs.CollectionChanged += OnTabsChanged;
         vm.SettingsChanged += UpdateTabOverflow;
+        vm.ExtraStatus.CollectionChanged += OnExtraStatusChanged;
         foreach (var tab in vm.Tabs)
         {
             if (tab.CreatedContent is not { } view) continue;
@@ -99,6 +100,7 @@ public partial class MainWindow : Window
         ShowSelected();
         UpdateStateVisuals();
         UpdateAttention();
+        ApplyStatusHidden();
         Dispatcher.BeginInvoke(UpdateTabOverflow, DispatcherPriority.Loaded);
     }
 
@@ -109,6 +111,8 @@ public partial class MainWindow : Window
         _vm.PropertyChanged -= OnVmChanged;
         _vm.Tabs.CollectionChanged -= OnTabsChanged;
         _vm.SettingsChanged -= UpdateTabOverflow;
+        _vm.ExtraStatus.CollectionChanged -= OnExtraStatusChanged;
+        UnwatchStatus();
         _vm.IsShown = false;
         Host.Children.Clear();
         _vm = null;
@@ -170,6 +174,133 @@ public partial class MainWindow : Window
         AttentionDot.Visibility = attention ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    // ------------------------------------------------------------------------------ status bar
+
+    /// <summary>The built-in items of the status bar by their id (the Tag in the XAML), with their names in its menu.</summary>
+    private static readonly (string Id, string Name)[] StatusNames =
+    [
+        ("map", "Map"), ("players", "Players"), ("cpu", "CPU (like \"stats\")"), ("in", "Network in"), ("out", "Network out"),
+        ("sv", "Server frame rate (sv)"), ("tick", "Ticks per second"), ("load", "Game thread load"), ("ents", "Entities"),
+        ("lua", "Lua memory"), ("ram", "Memory of srcds"), ("addon", "Companion addon"),
+    ];
+
+    // The extra items whose showing and hiding this window follows (their separators).
+    private readonly HashSet<StatusItemVm> _watchedStatus = new();
+
+    private void OnExtraStatusChanged(object? sender, NotifyCollectionChangedEventArgs e) => ApplyStatusHidden();
+
+    private void OnExtraStatusItemChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(StatusItemVm.IsShown)) UpdateExtraSeparators();
+    }
+
+    private void UnwatchStatus()
+    {
+        foreach (var x in _watchedStatus) x.PropertyChanged -= OnExtraStatusItemChanged;
+        _watchedStatus.Clear();
+    }
+
+    /// <summary>
+    /// What the user hid (the menu of the status bar). The separator in front of an item is left out when
+    /// nothing is shown before it.
+    /// </summary>
+    public void ApplyStatusHidden()
+    {
+        var hidden = _shell.Settings.StatusHidden;
+        bool before = false;
+        foreach (var item in StatusItems.Children.OfType<StackPanel>())
+        {
+            bool shown = !hidden.Contains((string)item.Tag);
+            item.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+            if (item.Children.Count > 0 && item.Children[0] is Border sep) sep.Visibility = before ? Visibility.Visible : Visibility.Collapsed;
+            before |= shown;
+        }
+        BridgeItem.Visibility = hidden.Contains("addon") ? Visibility.Collapsed : Visibility.Visible;
+        if (_vm == null) return;
+        foreach (var x in _vm.ExtraStatus)
+        {
+            x.UserHidden = hidden.Contains(x.Id);
+            // A plugin shows or hides its item by itself, too.
+            if (_watchedStatus.Add(x)) x.PropertyChanged += OnExtraStatusItemChanged;
+        }
+        UpdateExtraSeparators();
+    }
+
+    /// <summary>An extra item has no separator when nothing is shown before it (the user hid the built-in items).</summary>
+    private void UpdateExtraSeparators()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_vm == null) return;
+            bool any = StatusItems.Children.OfType<StackPanel>().Any(i => i.Visibility == Visibility.Visible);
+            foreach (var x in _vm.ExtraStatus)
+            {
+                if (ExtraStatusList.ItemContainerGenerator.ContainerFromItem(x) is not ContentPresenter cp) continue;
+                cp.ApplyTemplate();
+                if (cp.ContentTemplate?.FindName("Sep", cp) is Border sep) sep.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+                any |= x.IsShown;
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void OnStatusBarRightClick(object sender, MouseButtonEventArgs e)
+    {
+        var menu = StatusMenu();
+        menu.PlacementTarget = StatusBar;
+        menu.Placement = PlacementMode.MousePoint;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    /// <summary>Show or hide each item; the choice is the same in every window and is saved when BetterConsole closes.</summary>
+    private ContextMenu StatusMenu()
+    {
+        var menu = new ContextMenu();
+        var hidden = _shell.Settings.StatusHidden;
+        void Toggle(string id, string name)
+        {
+            var item = new MenuItem { Header = name, IsCheckable = true, IsChecked = !hidden.Contains(id), StaysOpenOnClick = true };
+            item.Click += (_, _) =>
+            {
+                hidden.Remove(id);
+                if (!item.IsChecked) hidden.Add(id);
+                foreach (var w in _shell.Windows) w.ApplyStatusHidden();
+            };
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new MenuItem { Header = "Status bar", IsEnabled = false, FontWeight = FontWeights.SemiBold });
+        foreach (var (id, name) in StatusNames) Toggle(id, name);
+        if (_vm is { ExtraStatus.Count: > 0 })
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "From addons and plugins", IsEnabled = false });
+            foreach (var x in _vm.ExtraStatus) Toggle(x.Id, x.MenuName);
+        }
+        menu.Items.Add(new Separator());
+        var all = new MenuItem { Header = "Show all", IsEnabled = hidden.Count > 0 };
+        all.Click += (_, _) =>
+        {
+            hidden.Clear();
+            foreach (var w in _shell.Windows) w.ApplyStatusHidden();
+        };
+        menu.Items.Add(all);
+        return menu;
+    }
+
+    private ContextMenu? _scriptStatusMenu;
+
+    /// <summary>For the UI script runner: the menu of the status bar, open; "click" toggles an item by its name.</summary>
+    public ContextMenu ScriptStatusMenu()
+    {
+        _scriptStatusMenu = StatusMenu();
+        _scriptStatusMenu.PlacementTarget = StatusBar;
+        _scriptStatusMenu.Placement = PlacementMode.Relative;
+        _scriptStatusMenu.HorizontalOffset = 260;
+        _scriptStatusMenu.VerticalOffset = -380;
+        _scriptStatusMenu.IsOpen = true;
+        return _scriptStatusMenu;
+    }
+
     // ------------------------------------------------------------------------------ toasts
 
     /// <summary>A notification in the corner. One of another server than the shown one names it.</summary>
@@ -198,6 +329,15 @@ public partial class MainWindow : Window
         _sideOpen = true;
         UpdateMode();
         SideOverlay.Visibility = Visibility.Visible;
+        if (Look.Compact)
+        {
+            // No animation in compact mode: there at once.
+            SideShift.BeginAnimation(TranslateTransform.XProperty, null);
+            SideDim.BeginAnimation(OpacityProperty, null);
+            SideShift.X = 0;
+            SideDim.Opacity = 0.55;
+            return;
+        }
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         SideShift.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(190)) { EasingFunction = ease });
         SideDim.BeginAnimation(OpacityProperty, new DoubleAnimation(0.55, TimeSpan.FromMilliseconds(190)));
@@ -207,6 +347,15 @@ public partial class MainWindow : Window
     {
         if (!_sideOpen) return;
         _sideOpen = false;
+        if (Look.Compact)
+        {
+            SideShift.BeginAnimation(TranslateTransform.XProperty, null);
+            SideDim.BeginAnimation(OpacityProperty, null);
+            SideShift.X = -SidePanel.ActualWidth - 12;
+            SideDim.Opacity = 0;
+            SideOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
         var slide = new DoubleAnimation(-SidePanel.ActualWidth - 12, TimeSpan.FromMilliseconds(150)) { EasingFunction = ease };
         slide.Completed += (_, _) => { if (!_sideOpen) SideOverlay.Visibility = Visibility.Collapsed; };
@@ -370,8 +519,7 @@ public partial class MainWindow : Window
 
     private void SetTabTitles(string mode)
     {
-        _shell.Settings.TabTitles = mode;
-        _shell.Settings.Save();
+        _shell.Settings.TabTitles = mode;   // saved on exit
         foreach (var w in _shell.Windows) w.UpdateCompactTabs();
     }
 
@@ -476,14 +624,26 @@ public partial class MainWindow : Window
     {
         var themes = ThemeManager.Discover(Path.Combine(AppSettings.DataDirectory, "themes"));
         var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Bottom };
+        bool compact = _shell.Settings.CompactMode;
+        var mode = new MenuItem
+        {
+            Header = "Compact mode",
+            IsCheckable = true,
+            IsChecked = compact,
+            ToolTip = "Smaller and plain: no themes, shadows, animations or avatars, for the least CPU and graphics work (a VPS without a graphics card draws everything in software). Everything works as before.",
+        };
+        mode.Click += (_, _) => _shell.SetCompact(!compact);
+        menu.Items.Add(mode);
+        menu.Items.Add(new Separator());
+        if (compact) menu.Items.Add(new MenuItem { Header = "Themes are off in compact mode", IsEnabled = false });
         foreach (var t in themes)
         {
-            var item = new MenuItem { Header = t.Name, IsCheckable = true, IsChecked = t.Name == ThemeManager.Current.Name };
+            var item = new MenuItem { Header = t.Name, IsCheckable = true, IsChecked = t.Name == _shell.Settings.Theme, IsEnabled = !compact };
             item.Click += (_, _) =>
             {
                 ThemeManager.Apply(t);
+                // Saved when BetterConsole closes, like the other view settings.
                 _shell.Settings.Theme = t.Name;
-                _shell.Settings.Save();
             };
             menu.Items.Add(item);
         }
@@ -553,6 +713,11 @@ public partial class MainWindow : Window
         }, vm.IsRunning);
         Add($"CPU affinity and priority…  ({ProcessTuning.Describe(vm.Profile.AffinityMask)})", () => OpenAffinity(vm));
         Add("Start / stop journal…", () => OpenJournal(_shell.MultiServer ? vm : null));
+        menu.Items.Add(new Separator());
+        // Here too: compact mode hides the theme button.
+        var compact = new MenuItem { Header = "Compact mode", IsCheckable = true, IsChecked = _shell.Settings.CompactMode };
+        compact.Click += (_, _) => _shell.SetCompact(compact.IsChecked);
+        menu.Items.Add(compact);
         if (_shell.MultiServer)
         {
             menu.Items.Add(new Separator());

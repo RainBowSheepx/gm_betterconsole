@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:BetterConsole.App.Controls"
              xmlns:vm="clr-namespace:BetterConsole.App.ViewModels">
-    <Grid Margin="12,8,12,10">
+    <Grid Margin="{DynamicResource Pad.Page}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -41,7 +41,7 @@
             <TextBlock x:Name="Summary" Margin="14,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" FontSize="12" />
         </DockPanel>
 
-        <Border x:Name="FrozenBar" Grid.Row="1" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="{StaticResource Radius}" Padding="10,5" Margin="0,0,0,8"
+        <Border x:Name="FrozenBar" Grid.Row="1" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="{DynamicResource Radius}" Padding="10,5" Margin="0,0,0,8"
                 Visibility="Collapsed">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource Icon}" Text="&#xE769;" FontSize="12" Foreground="{DynamicResource Brush.Accent}" />
@@ -58,7 +58,7 @@
                         <StackPanel Margin="0,0,0,6">
                             <!-- player header -->
                             <Border x:Name="Header" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1"
-                                    CornerRadius="{StaticResource Radius}" Padding="10,8" Cursor="Hand" c:ScrollAnchor.IsCandidate="True"
+                                    CornerRadius="{DynamicResource Radius}" Padding="10,8" Cursor="Hand" c:ScrollAnchor.IsCandidate="True"
                                     MouseLeftButtonUp="OnHeaderClick">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -68,7 +68,7 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock x:Name="Chevron" Style="{StaticResource Icon}" Text="&#xE76C;" FontSize="10" Margin="0,0,10,0" Foreground="{DynamicResource Brush.TextMuted}" />
-                                    <Grid Grid.Column="1" Width="28" Height="28" Margin="0,0,10,0">
+                                    <Grid Grid.Column="1" Width="28" Height="28" Margin="0,0,10,0" Visibility="{DynamicResource Visibility.NotCompact}">
                                         <Border CornerRadius="14" Background="{Binding Name, Converter={StaticResource NameToColor}}">
                                             <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" />

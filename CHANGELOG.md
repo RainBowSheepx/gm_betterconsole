@@ -3,6 +3,29 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.3.0 - 2026-10-06
+
+- **Compact mode** (*… → Compact mode*, or *Settings → Appearance*): smaller controls, square
+  corners and one plain palette (dark, or light like Windows' apps) instead of the themes; no
+  shadows, animations or Steam avatars, charts drawn without smoothing. The least work for the
+  processor and the graphics card, which matters most on a VPS without one. Only the look changes;
+  the theme button is hidden while it is on.
+- **The status bar shows what you choose**: right-click it to hide or show any item — the built-in
+  ones and those of addons and plugins. Saved when BetterConsole closes.
+- **Addons and plugins on the Statistics tab**: key numbers (a new *Stat* widget) among the built-in
+  ones, charts with the charts (they follow the 1 min … 1 hour window), any widget or WPF content
+  below them; built-in parts can be hidden (`BetterConsole.Stats`, `IUiHost.Stats`).
+- **Addons and plugins in the player menu**: items that run a console command for each selected
+  player or Lua with all of them, with a dialog (text, numbers, choices) or a question first, and
+  filters for whom an item is (two of them make a toggle such as Freeze / Unfreeze). Addons can hide
+  built-in items, plugins can change the whole menu (`BetterConsole.AddPlayerAction`,
+  `IUiHost.AddPlayerAction`, `PlayerMenuOpening`).
+- Status items of addons and plugins can have a dimmed label like the built-in ones, a name for the
+  status bar's menu and an order (`BetterConsole.SetStatus(id, { label = ..., text = ... })`).
+- Widgets can be removed (`widget:Remove()`).
+- Players: **cl_updaterate** and **cl_cmdrate** columns (hidden at first: *Columns*).
+- The example addon and the sample plugin show the new API.
+
 ## v0.2.2 - 2026-10-06
 
 - **Lag spikes say what caused them**: each long frame gets chips for what it was made of — the game

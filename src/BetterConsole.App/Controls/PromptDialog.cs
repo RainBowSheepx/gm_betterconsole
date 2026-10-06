@@ -84,7 +84,7 @@ public sealed class PromptDialog : Window
         return this;
     }
 
-    /// <summary>A drop-down; <paramref name="editable"/> lets the user type a value of his own.</summary>
+    /// <summary>A drop-down; <paramref name="editable"/> lets the user type a value of their own.</summary>
     public PromptDialog Choice(string key, string label, IEnumerable<(string Text, string Value)> items, string selected, bool editable = false)
     {
         Label(label);

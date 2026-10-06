@@ -77,9 +77,11 @@ Everyone on the server, updated every second while the tab is open.
   highest first: superadmin, admin, operator, user — and your own groups where they inherit (from ULX,
   or from CAMI with other admin mods). The column you sorted by is remembered.
 - **Columns**: right-click the header or press *Columns* to show or hide them. Available: Nick,
-  SteamID, Group, Load ms, Loss, Ping, FPS, Time, IP, In, Out, Choke, Team, Score. Drag a header to
-  move a column, its edge to resize it; BetterConsole keeps visibility, width and order (saved when it
-  closes). *Reset columns* in the header menu brings back the default.
+  SteamID, Group, Load ms, Loss, Ping, FPS, Time, IP, In, Out, Choke, Team, Score, cl_updaterate and
+  cl_cmdrate. The last two start hidden: they are what the player's game asks for, and the server
+  keeps them within `sv_minupdaterate` … `sv_maxupdaterate` and `sv_mincmdrate` … `sv_maxcmdrate`.
+  Drag a header to move a column, its edge to resize it; BetterConsole keeps visibility, width and
+  order (saved when it closes). *Reset columns* in the header menu brings back the default.
 - **Steam avatars** next to the names (also in the client errors and in the admin dialogs). They come
   from the players' public Steam profiles and are cached for a few days; bots, players whose avatar
   could not be loaded, and *Settings → Players → Show Steam avatars* off show the coloured initial.
@@ -105,6 +107,11 @@ Everyone on the server, updated every second while the tab is open.
 
 Players are addressed by an id ULX resolves to exactly that player, so two players with the same
 name, or names with spaces or Cyrillic, are not a problem.
+
+Server addons and plugins can add their own items to this menu (freeze, heal, a command of your admin
+mod…), and addons can hide built-in ones — a server with another ban system, say, can replace *Ban…*.
+An item that only fits some of the selected players says so ("Unfreeze · 1 of 3") and runs for those.
+How: [lua-api.md](lua-api.md#player-menu), [plugins.md](plugins.md).
 
 ## Client errors
 
@@ -154,6 +161,9 @@ Both error tabs have a filter box, *Copy all* and *Clear*.
 | **Network** | data from / to all clients |
 
 Charts show 1 minute to 1 hour (buttons on the top right); hover them for exact values.
+
+Server addons and plugins can add numbers, charts and sections of their own here (money in the economy,
+a job queue…) and hide built-in parts they make redundant: [lua-api.md](lua-api.md#the-statistics-tab).
 
 ### Lag spikes
 
@@ -291,10 +301,27 @@ seconds — it is hibernating (no players, `sv_hibernate_think 0`) or frozen. Ad
 add their own items after the built-in ones. In a narrow window the items that do not fit are left
 out, from the end.
 
+**Right-click the status bar** to choose what it shows: every built-in item and every item of an
+addon or a plugin can be hidden; *Show all* brings them back. The choice is the same in every window
+and is saved when BetterConsole closes.
+
+![The menu of the status bar](images/status-menu.png)
+
 ## Themes
 
 The sun icon switches between Dark, Light, Midnight and Graphite, plus the themes in the `themes`
 folder (two come with the release). How to make one: [themes.md](themes.md).
+
+## Compact mode
+
+*… → Compact mode* (also in the theme menu and in *Settings → Appearance*). The window gets smaller
+controls, square corners and one plain palette (dark, or light when Windows' apps are light) instead
+of the themes; shadows, animations and Steam avatars are off, and charts are drawn without smoothing.
+That is the least work for the processor and the graphics card — on a VPS without a graphics card
+Windows draws everything in software, so it helps most there. Only the look changes: every feature
+works as before. The theme button is hidden while it is on.
+
+![Compact mode](images/compact.png)
 
 ## Keyboard shortcuts
 

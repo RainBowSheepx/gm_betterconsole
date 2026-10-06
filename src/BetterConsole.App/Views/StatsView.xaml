@@ -2,50 +2,39 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:BetterConsole.App.Controls"
-             xmlns:vm="clr-namespace:BetterConsole.App.ViewModels">
+             xmlns:vm="clr-namespace:BetterConsole.App.ViewModels"
+             xmlns:v="clr-namespace:BetterConsole.App.Views">
     <UserControl.Resources>
-        <Style x:Key="Kpi" TargetType="Border" BasedOn="{StaticResource Card}">
-            <Setter Property="Margin" Value="0,0,10,10" />
-            <Setter Property="Padding" Value="14,10" />
-            <Setter Property="MinWidth" Value="170" />
-        </Style>
-        <Style x:Key="KpiLabel" TargetType="TextBlock" BasedOn="{StaticResource Text.Section}">
-            <Setter Property="Margin" Value="0,0,0,2" />
-        </Style>
-        <Style x:Key="KpiValue" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="22" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />
-        </Style>
-        <Style x:Key="KpiSub" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11.5" />
-            <Setter Property="Foreground" Value="{DynamicResource Brush.TextMuted}" />
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-        </Style>
-        <Style x:Key="ChartCard" TargetType="Border" BasedOn="{StaticResource Card}">
-            <Setter Property="Margin" Value="0,0,10,10" />
-            <Setter Property="Padding" Value="12,10,12,8" />
-            <Setter Property="Height" Value="210" />
-        </Style>
-        <Style x:Key="ProfGrid" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
-            <Setter Property="RowHeight" Value="26" />
-            <Setter Property="MaxHeight" Value="330" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="CanUserSortColumns" Value="True" />
-            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
-            <Setter Property="c:ScrollChain.IsEnabled" Value="True" />
-            <!-- double-click a path: the file opens in the editor -->
-            <Setter Property="c:LuaLinks.IsEnabled" Value="True" />
-        </Style>
-        <!-- the name of a hook / timer / net message: where its function is (tooltip, double-click opens it) -->
-        <Style x:Key="DefinedInCell" TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}">
-            <Setter Property="Tag" Value="{Binding Source}" />
-            <Setter Property="ToolTip" Value="{Binding SourceTip}" />
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- the widgets of addons, and the look of the key numbers (Kpi…) -->
+                <v:LuaWidgets />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="ChartCard" TargetType="Border" BasedOn="{StaticResource Card}">
+                <Setter Property="Margin" Value="0,0,10,10" />
+                <Setter Property="Padding" Value="12,10,12,8" />
+                <Setter Property="Height" Value="{DynamicResource Size.Chart}" />
+            </Style>
+            <Style x:Key="ProfGrid" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+                <Setter Property="RowHeight" Value="26" />
+                <Setter Property="MaxHeight" Value="330" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="CanUserSortColumns" Value="True" />
+                <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+                <Setter Property="c:ScrollChain.IsEnabled" Value="True" />
+                <!-- double-click a path: the file opens in the editor -->
+                <Setter Property="c:LuaLinks.IsEnabled" Value="True" />
+            </Style>
+            <!-- the name of a hook / timer / net message: where its function is (tooltip, double-click opens it) -->
+            <Style x:Key="DefinedInCell" TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}">
+                <Setter Property="Tag" Value="{Binding Source}" />
+                <Setter Property="ToolTip" Value="{Binding SourceTip}" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            </Style>
+        </ResourceDictionary>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="12,8,2,10">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="{DynamicResource Pad.PageScroll}">
         <StackPanel x:Name="Root">
             <!-- toolbar -->
             <DockPanel Margin="0,0,10,10">
@@ -60,78 +49,78 @@
             </DockPanel>
 
             <!-- key numbers -->
-            <WrapPanel>
-                <Border Style="{StaticResource Kpi}" ToolTip="Server frames per second and the standard deviation of the frame time (net_graph's &quot;sv&quot;)">
+            <WrapPanel x:Name="Kpis">
+                <Border Style="{StaticResource Kpi}" Tag="fps" ToolTip="Server frames per second and the standard deviation of the frame time (net_graph's &quot;sv&quot;)">
                     <StackPanel>
                         <TextBlock Text="SERVER FPS" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.FpsText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.FpsSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}" ToolTip="Time between frames; should stay at the tick interval">
+                <Border Style="{StaticResource Kpi}" Tag="frame" ToolTip="Time between frames; should stay at the tick interval">
                     <StackPanel>
                         <TextBlock Text="FRAME TIME" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.FrameText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.FrameSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}" ToolTip="Share of the time the game thread was busy (CPU time of the thread measured by the native module). Near 100 % the server cannot keep its tick rate.">
+                <Border Style="{StaticResource Kpi}" Tag="load" ToolTip="Share of the time the game thread was busy (CPU time of the thread measured by the native module). Near 100 % the server cannot keep its tick rate.">
                     <StackPanel>
                         <TextBlock Text="GAME THREAD LOAD" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.LoadText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.LoadSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}">
+                <Border Style="{StaticResource Kpi}" Tag="tick">
                     <StackPanel>
                         <TextBlock Text="TICKS / SECOND" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.TickText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.TickSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}" ToolTip="CPU time of the srcds process like the engine's &quot;stats&quot; command (100 % = one core)">
+                <Border Style="{StaticResource Kpi}" Tag="cpu" ToolTip="CPU time of the srcds process like the engine's &quot;stats&quot; command (100 % = one core)">
                     <StackPanel>
                         <TextBlock Text="CPU (STATS)" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.CpuText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.CpuSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}">
+                <Border Style="{StaticResource Kpi}" Tag="memory">
                     <StackPanel>
                         <TextBlock Text="MEMORY" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.MemoryText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.MemorySub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}">
+                <Border Style="{StaticResource Kpi}" Tag="lua">
                     <StackPanel>
                         <TextBlock Text="LUA MEMORY" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.LuaText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.LuaSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}">
+                <Border Style="{StaticResource Kpi}" Tag="players">
                     <StackPanel>
                         <TextBlock Text="PLAYERS" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.PlayersText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.PlayersSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}" ToolTip="Edicts are limited to 8192; the server crashes when it runs out">
+                <Border Style="{StaticResource Kpi}" Tag="entities" ToolTip="Edicts are limited to 8192; the server crashes when it runs out">
                     <StackPanel>
                         <TextBlock Text="ENTITIES" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.EntitiesText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.EntitiesSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}">
+                <Border Style="{StaticResource Kpi}" Tag="network">
                     <StackPanel>
                         <TextBlock Text="NETWORK" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.NetText}" Style="{StaticResource KpiValue}" />
                         <TextBlock Text="{Binding Stats.NetSub}" Style="{StaticResource KpiSub}" />
                     </StackPanel>
                 </Border>
-                <Border Style="{StaticResource Kpi}">
+                <Border Style="{StaticResource Kpi}" Tag="uptime">
                     <StackPanel>
                         <TextBlock Text="UPTIME" Style="{StaticResource KpiLabel}" />
                         <TextBlock Text="{Binding Stats.UptimeText}" Style="{StaticResource KpiValue}" />
@@ -140,43 +129,36 @@
                 </Border>
             </WrapPanel>
 
-            <!-- charts -->
-            <Grid x:Name="Charts">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="0" Grid.Column="0">
+            <!-- charts: two to a row (Tag: id for hiding, span in twelfths); addon and plugin charts join them -->
+            <WrapPanel x:Name="Charts" SizeChanged="OnChartsSizeChanged">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.frame">
                     <c:TimeSeriesChart x:Name="FrameChart" Title="Frame time" Unit="ms" Decimals="1" MinimumMax="20" />
                 </Border>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="0" Grid.Column="1">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.load">
                     <c:TimeSeriesChart x:Name="LoadChart" Title="Load" Unit="%" Decimals="0" MinimumMax="20" />
                 </Border>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="1" Grid.Column="0">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.rate">
                     <c:TimeSeriesChart x:Name="FpsChart" Title="Rate" Unit="/s" Decimals="1" MinimumMax="10" />
                 </Border>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="1" Grid.Column="1">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.memory">
                     <c:TimeSeriesChart x:Name="MemChart" Title="Memory" Unit="MB" Decimals="0" MinimumMax="64" />
                 </Border>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="2" Grid.Column="0">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.network">
                     <c:TimeSeriesChart x:Name="NetChart" Title="Network" Unit="KB/s" Decimals="1" MinimumMax="4" />
                 </Border>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="2" Grid.Column="1">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.players">
                     <c:TimeSeriesChart x:Name="PlayersChart" Title="Players" Decimals="0" MinimumMax="4" />
                 </Border>
-                <Border Style="{StaticResource ChartCard}" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2">
+                <Border Style="{StaticResource ChartCard}" Tag="chart.entities" c:StatsLayout.Span="12">
                     <c:TimeSeriesChart x:Name="EntsChart" Title="Entities" Decimals="0" MinimumMax="100" />
                 </Border>
-            </Grid>
+            </WrapPanel>
+
+            <!-- the other widgets of addons and plugins' sections -->
+            <WrapPanel x:Name="Extras" Grid.IsSharedSizeScope="True" SizeChanged="OnChartsSizeChanged" />
 
             <!-- long frames: what each one was made of -->
-            <Border Style="{StaticResource Card}" Margin="0,0,10,10">
+            <Border x:Name="SpikesCard" Tag="spikes" Style="{StaticResource Card}" Margin="0,0,10,10">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                         <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Top">
@@ -294,7 +276,7 @@
 
 
             <!-- profiler -->
-            <Border Style="{StaticResource Card}" Margin="0,0,10,10">
+            <Border x:Name="ProfilerCard" Tag="profiler" Style="{StaticResource Card}" Margin="0,0,10,10">
                 <StackPanel>
                     <DockPanel>
                         <Button x:Name="ProfButton" DockPanel.Dock="Right" Style="{StaticResource Btn.Primary}" Click="OnProfile" Padding="14,6">

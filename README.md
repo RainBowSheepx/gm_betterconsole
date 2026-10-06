@@ -37,9 +37,10 @@ in your server or its addons.
 - **Commands just work**: text with Cyrillic or other non-ASCII characters (`say Привет`), and even
   commands Lua refuses to run, go straight to the engine.
 - **Players** tab: a sortable table with Steam avatars (time on the server, newest at the bottom,
-  ping, loss, fps, the server CPU each player costs, groups by rank …) with columns you can hide,
-  resize and move. Right-click a player, or several selected ones, to kick, ban, set a group, gag,
-  mute or jail — ULX compatible, with a dialog for the reason and duration.
+  ping, loss, fps, cl_updaterate / cl_cmdrate, the server CPU each player costs, groups by rank …)
+  with columns you can hide, resize and move. Right-click a player, or several selected ones, to
+  kick, ban, set a group, gag, mute or jail — ULX compatible, with a dialog for the reason and
+  duration.
 - **Client Lua errors** grouped by player, newest first; **server Lua errors** oldest first. Same
   errors are counted instead of repeated, the arrow shows the stack trace, text can be selected, a
   double-click on a Lua path opens the file at its line in your editor (VS Code, Notepad++ …), and
@@ -50,10 +51,14 @@ in your server or its addons.
   collector, physics; with detailed capture the slowest hooks and net messages too, and the engine's
   own profiler); an on-demand **Lua profiler** for
   hooks, timers, net messages and entity classes.
-- **Status bar** with CPU, players, in/out, `sv` fps ± variance, tick, load, entities, Lua and RAM.
-- **Themes**: Dark, Light, Midnight, Graphite — and your own as a small JSON file.
-- **Make it yours**: server addons add tabs, charts, tables, logs, buttons and status items with a
-  few lines of Lua; C# plugins can add anything.
+- **Status bar** with CPU, players, in/out, `sv` fps ± variance, tick, load, entities, Lua and RAM;
+  right-click it to choose what it shows.
+- **Themes**: Dark, Light, Midnight, Graphite — and your own as a small JSON file. **Compact mode**:
+  smaller and plain, without shadows, animations or avatars, for the least CPU and graphics work
+  (a VPS without a graphics card draws everything in software); everything still works.
+- **Make it yours**: server addons add tabs, numbers and charts on the Statistics tab, items in the
+  player menu (a command or Lua, with a dialog), tables, logs, buttons and status items with a few
+  lines of Lua, and can hide built-in parts; C# plugins can add anything.
 - **Several servers in one app** (multi-console): a server list with state, map, players and fps that
   slides in from the logo, and a window of its own for any server. Settings are shared.
 - **Runs the server for you**: start / stop / restart, crash detection with automatic restart,

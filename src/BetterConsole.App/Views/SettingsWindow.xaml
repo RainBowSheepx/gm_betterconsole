@@ -33,7 +33,7 @@
         </Grid.RowDefinitions>
         <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Padding="24,6,24,10">
             <StackPanel>
-                <Border x:Name="Welcome" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="{StaticResource Radius.Large}" Padding="14,12" Margin="0,12,0,0" Visibility="Collapsed">
+                <Border x:Name="Welcome" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="{DynamicResource Radius.Large}" Padding="14,12" Margin="0,12,0,0" Visibility="Collapsed">
                     <StackPanel>
                         <TextBlock Text="Welcome to BetterConsole" FontWeight="SemiBold" FontSize="14" />
                         <TextBlock TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource Brush.TextSecondary}"
@@ -52,7 +52,7 @@
                         <ColumnDefinition Width="10" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="{StaticResource Radius}" Padding="4">
+                    <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="{DynamicResource Radius}" Padding="4">
                         <ListBox x:Name="ServerList" BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource PlainListBoxItem}"
                                  MaxHeight="190" SelectionChanged="OnServerSelected" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemTemplate>
@@ -226,6 +226,8 @@
 
                 <!-- ====================================================== appearance -->
                 <TextBlock Text="Appearance" Style="{StaticResource Section}" />
+                <CheckBox x:Name="Compact" Content="Compact mode" Checked="OnCompactPreview" Unchecked="OnCompactPreview" />
+                <TextBlock Style="{StaticResource Help}" Margin="26,-4,0,10" Text="Smaller and plain, for the least CPU and graphics work: no themes (one palette, dark or light like Windows' apps), no shadows, animations or avatars. A VPS without a graphics card draws everything in software, so this helps most there. Everything works as before. Also in the menu of the … button (and the theme button, which compact mode hides)." />
                 <TextBlock Text="Theme" Style="{StaticResource Label}" />
                 <ComboBox x:Name="Theme" Width="240" HorizontalAlignment="Left" SelectionChanged="OnThemePreview" />
                 <TextBlock Style="{StaticResource Help}" Text="Your own themes: JSON files in the themes folder next to BetterConsole.exe (see docs/themes.md)." />

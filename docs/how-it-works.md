@@ -83,13 +83,13 @@ One JSON object per line, with its type in `t`.
 | `hello` | after (re)connecting | `addon`, `module`, `gmod`, `branch`, `map`, `gamemode`, `hostname`, `maxplayers`, `tickrate` |
 | `stats` | every second | `st` (`SysTime()` when sent), `fps`, `ft` / `ftmax` / `ftsd` (frame time avg / max / deviation, ms), `busy` / `busymax` (CPU ms per frame), `load` (%), `tps`, `tickrate`, `players`, `bots`, `maxplayers`, `ents`, `edicts`, `lua` (KB), `netin` / `netout` (bytes/s), `map`, `uptime`, `spikes`: frames longer than three ticks with `ms`, `busy`, `time`, `st` (`SysTime()` of the next frame), `phys` (ms), `heap` / `gc` (MB), `ents` (change), `joined`, `start`, the slowest `timer` (`k`, `ms`, `src`), with the capture on `cbs` (`kind`, `k`, `ms`, `n`, `b`, `src`, `who`) |
 | `capture_state` | after `capture` | `on` |
-| `players` | every 1–2 s | `list` of `uid`, `name`, `sid`, `sid64`, `bot`, `ip`, `ping`, `loss`, `choke`, `in`, `out`, `fps`, `time`, `group`, `team`, `frags`, `deaths`, `load`, ULX `ulxid` / `gagged` / `muted` / `jailed`; `ulx`, `groups` (highest first), `ranks` (group → how many groups it inherits from, ULX or CAMI), `load` (measured?) |
+| `players` | every 1–2 s | `list` of `uid`, `name`, `sid`, `sid64`, `bot`, `ip`, `ping`, `loss`, `choke`, `in`, `out`, `fps`, `time`, `group`, `team`, `frags`, `deaths`, `load`, `upd` / `cmdr` (`cl_updaterate` / `cl_cmdrate`), `act` (player menu items whose filter accepts the player), ULX `ulxid` / `gagged` / `muted` / `jailed`; `ulx`, `groups` (highest first), `ranks` (group → how many groups it inherits from, ULX or CAMI), `load` (measured?) |
 | `quitcmd` | Lua ran `quit`, `exit` or `_restart` | `cmd`, `ply` (`name`, `sid`: the player in whose call it ran), `src` (where in the code), `via`; the reason in the journal if the server exits right after |
 | `err` | on a Lua error (repeats at most once a second, with `n`) | `realm` (`server` / `client`), `msg`, `stack` (`fn`, `src`, `line`), `addon`, `wsid`, `ply`, `n`, `time` |
 | `cmds` | on request | `list` of `n` (name), `c` (is a command), `f` (flags), `h` (help), `v` / `d` / `mn` / `mx` (value, default, limits); `maps` |
 | `cvals` | on request | `vals`: name → current value |
 | `prof`, `prof_state` | while profiling | top `hooks`, `timers`, `netin`, `netout` (`k`, `ms`, `n`, `max`, `b`, `src`), `ents`, `since` |
-| `tab`, `tab_rm`, `w`, `wd`, `st`, `st_rm`, `notify`, `custom` | Lua API | see [lua-api.md](lua-api.md) |
+| `tab`, `tab_rm`, `w`, `wd`, `w_rm`, `stats_hide`, `pa`, `pa_rm`, `pa_hide`, `st`, `st_rm`, `notify`, `custom` | Lua API | see [lua-api.md](lua-api.md); widgets of the Statistics tab have `tab = "@stats"`, `pa` is a player menu item (`id`, `text`, `icon`, `order`, `command`, `fields`, `confirm`, `danger`, `filtered`, `run`, `bots`, `multi`) |
 
 **App → server**
 
@@ -100,6 +100,7 @@ One JSON object per line, with its type in `t`.
 | `prof` (`on`) | start / stop the profiler |
 | `capture` (`on`) | start / stop the detailed capture of lag spikes (the app also types `vprof_on` / `vprof_dump_spikes` itself) |
 | `action` (`tab`, `widget`, `id`) | a button of an addon tab was pressed |
+| `paction` (`id`, `uids`, `values`) | a player menu item with `onRun` was chosen for these players |
 | `exec` (`cmd`) | run a long command through the engine |
 | `setgroup` (`sid`, `uid`, `group`) | set a group without ULX |
 | `custom` (`type`, `data`) | from a C# plugin, raised as the Lua hook `BetterConsoleMessage` |

@@ -12,13 +12,15 @@ public sealed record QuickCommand(string Label, string Command, bool Confirm = f
 
 /// <summary>
 /// Sample plugin: a "Quick commands" tab with buttons for commands you run often, read from
-/// plugins-data\example.quickcommands\commands.json (created on first start, edit it freely),
-/// and a status bar item with the time since the last map change.
+/// plugins-data\example.quickcommands\commands.json (created on first start, edit it freely), the time
+/// since the last map change in the status bar and on the Statistics tab, and a "Greet in the chat"
+/// item in the right-click menu of the Players tab.
 /// </summary>
 public sealed class QuickCommandsPlugin : IConsolePlugin
 {
     private IPluginContext _ctx = null!;
     private IStatusItem? _mapItem;
+    private IStatCard? _mapCard;
     private DateTime _mapStarted = DateTime.Now;
     private string? _lastMap;
 
@@ -31,12 +33,27 @@ public sealed class QuickCommandsPlugin : IConsolePlugin
         _ctx = context;
         context.Ui.AddTab("quickcommands", "Quick commands", "", BuildView, order: 60);
         _mapItem = context.Ui.AddStatusItem("quickcommands.map", "", "Time on the current map (Quick commands plugin)");
+        // Like the built-in items: "On map" dimmed, then the time. The name is what the status bar's menu (right-click) lists.
+        _mapItem.Label = "On map";
+        _mapItem.Name = "Time on the map (Quick commands)";
         _mapItem.Visible = false;
+        // A key number on the Statistics tab, after the built-in ones (they use the order 10-110).
+        _mapCard = context.Ui.Stats.AddCard("map", "Time on the map", order: 120);
+        _mapCard.Tooltip = "Since the last map change (Quick commands plugin)";
+        // An item of the player menu, for any number of selected players.
+        context.Ui.AddPlayerAction("greet", "Greet in the chat", Greet, icon: "");
         context.Server.SnapshotUpdated += OnSnapshot;
         context.Server.StateChanged += (_, e) =>
         {
             if (e.NewState != ServerState.Running && _mapItem != null) _mapItem.Visible = false;
         };
+    }
+
+    private void Greet(IReadOnlyList<PlayerInfo> players)
+    {
+        // A name may hold a ';' (it would end the command) or quotes.
+        var names = string.Join(", ", players.Select(p => p.Name.Replace(";", ",").Replace("\"", "'")));
+        _ctx.Server.SendCommand($"say Hello, {names}!");
     }
 
     private void OnSnapshot(object? sender, ServerSnapshot s)
@@ -48,8 +65,13 @@ public sealed class QuickCommandsPlugin : IConsolePlugin
             _mapStarted = DateTime.Now;
         }
         var t = DateTime.Now - _mapStarted;
-        _mapItem.Text = $"On map {(int)t.TotalMinutes}:{t.Seconds:00}";
+        _mapItem.Text = $"{(int)t.TotalMinutes}:{t.Seconds:00}";
         _mapItem.Visible = true;
+        if (_mapCard != null)
+        {
+            _mapCard.Value = $"{(int)t.TotalMinutes}:{t.Seconds:00}";
+            _mapCard.Sub = s.Map;
+        }
     }
 
     private List<QuickCommand> LoadCommands()

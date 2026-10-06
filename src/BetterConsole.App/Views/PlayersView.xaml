@@ -1,7 +1,7 @@
 <UserControl x:Class="BetterConsole.App.Views.PlayersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Margin="12,8,12,10">
+    <Grid Margin="{DynamicResource Pad.Page}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -37,7 +37,7 @@
         </DockPanel>
 
         <Border Grid.Row="1" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1"
-                CornerRadius="{StaticResource Radius.Large}" Padding="6,4">
+                CornerRadius="{DynamicResource Radius.Large}" Padding="6,4">
             <Grid>
                 <DataGrid x:Name="Grid" Sorting="OnSorting" MouseRightButtonUp="OnRowRightClick" SelectionChanged="OnSelectionChanged" SelectionMode="Extended" CanUserReorderColumns="True" CanUserSortColumns="True"
                           CanUserResizeColumns="True">
@@ -47,7 +47,7 @@
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
                                         <!-- Steam avatar over the coloured initial (shown while there is no avatar, or for bots) -->
-                                        <Grid Width="22" Height="22" Margin="0,0,8,0">
+                                        <Grid Width="22" Height="22" Margin="0,0,8,0" Visibility="{DynamicResource Visibility.NotCompact}">
                                             <Border CornerRadius="11" Background="{Binding Name, Converter={StaticResource NameToColor}}">
                                                 <Grid>
                                                     <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="#FFFFFF" FontSize="11" FontWeight="SemiBold"
@@ -110,7 +110,7 @@
                         <DataGridTemplateColumn Header="Load ms" SortMemberPath="Load" Width="Auto" MinWidth="80">
                             <DataGridTemplateColumn.HeaderStyle>
                                 <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
-                                    <Setter Property="ToolTip" Value="Server CPU spent on the player per tick: processing his commands and net messages. Measured while this tab is open." />
+                                    <Setter Property="ToolTip" Value="Server CPU spent on the player per tick: processing their commands and net messages. Measured while this tab is open." />
                                 </Style>
                             </DataGridTemplateColumn.HeaderStyle>
                             <DataGridTemplateColumn.CellTemplate>
@@ -138,6 +138,20 @@
                         <DataGridTextColumn Header="Choke" Binding="{Binding ChokeText}" SortMemberPath="Choke" Width="Auto" MinWidth="60" />
                         <DataGridTextColumn Header="Team" Binding="{Binding Team}" SortMemberPath="Team" Width="Auto" MinWidth="80" />
                         <DataGridTextColumn Header="Score" Binding="{Binding Frags}" SortMemberPath="Frags" Width="Auto" MinWidth="55" />
+                        <DataGridTextColumn Header="cl_updaterate" Binding="{Binding UpdateRateText}" SortMemberPath="UpdateRate" Width="Auto" MinWidth="70">
+                            <DataGridTextColumn.HeaderStyle>
+                                <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                    <Setter Property="ToolTip" Value="Snapshots per second the client asks the server for. The server keeps it between sv_minupdaterate and sv_maxupdaterate and never above its tick rate." />
+                                </Style>
+                            </DataGridTextColumn.HeaderStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="cl_cmdrate" Binding="{Binding CmdRateText}" SortMemberPath="CmdRate" Width="Auto" MinWidth="70">
+                            <DataGridTextColumn.HeaderStyle>
+                                <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                    <Setter Property="ToolTip" Value="Command packets per second the client wants to send. The server keeps it between sv_mincmdrate and sv_maxcmdrate." />
+                                </Style>
+                            </DataGridTextColumn.HeaderStyle>
+                        </DataGridTextColumn>
                     </DataGrid.Columns>
                 </DataGrid>
                 <StackPanel x:Name="Empty" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">

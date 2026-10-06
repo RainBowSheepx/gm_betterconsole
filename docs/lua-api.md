@@ -1,7 +1,8 @@
-# Lua API — tabs and status items from server addons
+# Lua API — tabs, statistics, player menu and status items from server addons
 
-Any server addon can show its own information in BetterConsole: a tab with widgets (text, key/value
-list, table, log, chart, buttons) and items in the status bar. Everything here is server-side Lua.
+Any server addon can show its own information in BetterConsole: a tab with widgets (key numbers, text,
+key/value list, table, log, chart, buttons), numbers and charts on the Statistics tab, items in the
+right-click menu of the Players tab and in the status bar. Everything here is server-side Lua.
 
 ![A tab made by an addon](images/addon-tab.png)
 
@@ -89,8 +90,25 @@ widget:
 | `title` | string | none | heading of the card |
 | `span` | 1–12 | 12 | width in twelfths of the tab (narrow windows show everything full width) |
 
-Every widget has `widget:Clear()`. Calling a constructor again with the same id updates the
-widget's options.
+Every widget has `widget:Clear()` and `widget:Remove()` (it leaves the tab; the constructor adds
+it back). Calling a constructor again with the same id updates the widget's options. Ids are unique
+per tab: a Stat and a Chart with the same id are one widget, and the second replaces the first.
+
+### Stat — `tab:Stat(id, options)`
+
+A key number: the title in small capitals, a big value, a line under it — the cards at the top of the
+Statistics tab. On a tab of your own it is 3 twelfths wide unless `span` says otherwise.
+
+| Option | |
+|---|---|
+| `tooltip` | shown when the pointer is over the card |
+| `order` | on the Statistics tab: its place among the built-in numbers (see below) |
+
+```lua
+local money = tab:Stat("money", { title = "Money", tooltip = "In all wallets" })
+money:Set("$1.2M", "40 wallets")                                -- value, line under it
+money:Set({ value = "$0", sub = "empty", color = Color(240, 90, 90) })
+```
 
 ### Text — `tab:Text(id, options)`
 
@@ -165,6 +183,105 @@ Points are stamped with the time they were pushed; the chart shows the last 10 m
 A widget can carry its own handler: `tab:Buttons("x", { buttons = {...}, onAction = function(widgetId, actionId) end })`.
 `widget:Set({ ...buttons... })` replaces the buttons.
 
+## The Statistics tab
+
+`BetterConsole.Stats` is the built-in Statistics tab with the methods of a tab of your own: Stat cards
+join the key numbers at the top, charts join the charts (two to a row unless `span = 12`, and they
+follow the tab's 1 min … 1 hour window), any other widget goes below the charts. `order` places a card
+or chart among the built-in ones:
+
+| Order | Numbers | Charts |
+|---|---|---|
+| 10 | `fps` | `chart.frame` |
+| 20 | `frame` | `chart.load` |
+| 30 | `load` | `chart.rate` |
+| 40 | `tick` | `chart.memory` |
+| 50 | `cpu` | `chart.network` |
+| 60 | `memory` | `chart.players` |
+| 70 | `lua` | `chart.entities` |
+| 80 | `players` | |
+| 90 | `entities` | |
+| 100 | `network` | |
+| 110 | `uptime` | |
+
+Without `order` your parts come after the built-in ones. The two sections below the charts are
+`spikes` (lag spikes) and `profiler`.
+
+A chart keeps what your addon pushed in this Lua state: after a map change it starts again, and
+after BetterConsole restarts it gets back the last `max` points (600 by default). For an hour of
+history push once a minute or raise `max`.
+
+```lua
+local stats = BetterConsole.Stats
+local money = stats:Stat("money", { title = "Money", order = 85 })    -- after Players
+local chart = stats:Chart("money_chart", { title = "Money", unit = "$" })
+timer.Create("myeconomy_stats", 1, 0, function()
+    local total = MyEconomy.Total()
+    money:Set(string.Comma(total), #player.GetHumans() .. " wallets")
+    chart:Push(total)
+end)
+```
+
+### `BetterConsole.Stats:Hide(id, ...)` / `BetterConsole.Stats:Show(id, ...)`
+
+Hides (shows again) built-in parts by their ids from the table above, for example a number your
+addon shows better: `BetterConsole.Stats:Hide("players", "chart.players")`.
+
+## Player menu
+
+Items of your own in the right-click menu of the Players tab. The menu works on the selected players:
+a command runs once for each of them, an `onRun` function once with all of them.
+
+### `BetterConsole.AddPlayerAction(id, options) → action`
+
+| Option | Default | |
+|---|---|---|
+| `text` | the id | the menu item |
+| `icon` | none | hex code of a Segoe Fluent Icons glyph (`"E7BA"`) or a letter |
+| `order` | 300 | position: kick 100, ban 110, group 120, gag 200, mute 210, jail 220, copy 400–420, profile 430. A separator goes between hundreds, so 300 makes a section of its own |
+| `command` | | a console command, run for each player. `{target}` addresses the player (as ULX does, quoted) — use it for targets; `{userid}`, `{steamid}` (write `"{steamid}"`: the engine splits words at `:`), `{steamid64}`, `{name}` (for messages only: a name such as `*` or `@` would be a ULX target of its own), and `{field}` for each field of the dialog (a field cannot have one of these names). Names and typed values lose quotes, semicolons and line breaks. A command without a player placeholder runs once |
+| `onRun` | | `function(players, values)` on the server instead (it wins when both are given): the selected players that are still there, the values of the dialog by field id (numbers for `type = "number"`). One of `command` and `onRun` is needed |
+| `fields` | none | a dialog before it runs, see below |
+| `confirm` | none | a question before it runs; `{players}`, `{name}`, `{count}` are replaced |
+| `danger` | false | the dialog's button is red |
+| `filter` | none | `function(ply) → bool`: the item is only for the players it accepts. It runs with each player list (every second or two), so keep it cheap. Two items with opposite filters make a toggle |
+| `bots` | true | false: not for bots |
+| `multi` | true | false: only while a single player is selected |
+
+Fields: `{ id = "reason", text = "Reason", default = "" }` (text),
+`{ id = "minutes", text = "Minutes", type = "number", default = 5 }`,
+`{ id = "where", text = "Where", choices = { "spawn", "jail" }, default = "spawn" }` (a drop-down;
+`{ { "Shown text", "value" }, ... }` for other values than texts, `editable = true` to allow typing).
+
+```lua
+-- A toggle: each selected player gets the item that fits.
+BetterConsole.AddPlayerAction("freeze", {
+    text = "Freeze", icon = "E769",
+    filter = function(ply) return not ply:IsFrozen() end,
+    onRun = function(plys) for _, p in ipairs(plys) do p:Freeze(true) end end,
+})
+BetterConsole.AddPlayerAction("unfreeze", {
+    text = "Unfreeze", icon = "E768",
+    filter = function(ply) return ply:IsFrozen() end,
+    onRun = function(plys) for _, p in ipairs(plys) do p:Freeze(false) end end,
+})
+
+-- No Lua at all: a command of your admin mod, with a dialog.
+BetterConsole.AddPlayerAction("slap", {
+    text = "Slap", order = 230,
+    fields = { { id = "damage", text = "Damage", choices = { "0", "10", "50" }, default = "0" } },
+    command = "ulx slap {target} {damage}",
+})
+```
+
+### `BetterConsole.RemovePlayerAction(id)` (or `action:Remove()`)
+
+### `BetterConsole.HidePlayerAction(id, ...)` / `BetterConsole.ShowPlayerAction(id, ...)`
+
+Hides built-in items: `kick`, `ban`, `group`, `gag` (and Ungag), `mute` (and Unmute), `jail` (and
+Unjail), `copy` (the three copy items), `profile`. A server with its own ban system can hide `ban` and
+add its own item in its place (`order = 110`).
+
 ## Status bar
 
 ### `BetterConsole.SetStatus(id, text [, tooltip [, color]])`
@@ -173,6 +290,22 @@ Adds or updates a text item on the right of the status bar.
 
 ```lua
 BetterConsole.SetStatus("myjobs", "Jobs 12", "Waiting jobs", Color(242, 179, 61))
+```
+
+### `BetterConsole.SetStatus(id, options)`
+
+The same with a table, to look like the built-in items: a dimmed `label` before the `text`.
+
+| Option | |
+|---|---|
+| `text` | the value |
+| `label` | dimmed before it ("Jobs") |
+| `tooltip`, `color` | as above |
+| `name` | what the menu of the status bar calls it (right-click the status bar: the user can hide any item there); default the label, else the id |
+| `order` | position among the items of addons (500) and plugins (1000 unless they say otherwise) |
+
+```lua
+BetterConsole.SetStatus("myjobs", { label = "Jobs", text = #Jobs.Queue, tooltip = "Waiting jobs", name = "Job queue" })
 ```
 
 ### `BetterConsole.RemoveStatus(id)`
@@ -219,6 +352,8 @@ while BetterConsole is connected:
   name timers; while the profiler is off the wrapper just calls your function.
 - While the **Players** tab is open: `StartCommand` / `FinishMove` hooks and a `net.Incoming`
   wrapper measure the CPU per player.
+- The player list (every one or two seconds) reads `cl_updaterate` and `cl_cmdrate` of each player
+  (`GetInfoNum`) and runs the `filter` functions of player menu items.
 - While the **profiler** runs: hook functions, `net.Receive` handlers and `net.Start` / `net.Send*`
   are wrapped. Everything is restored when it stops.
 - The command `betterconsole_exec <hex>` (server console only) runs commands with non-ASCII text.

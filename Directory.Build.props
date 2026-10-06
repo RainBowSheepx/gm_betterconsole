@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- One version for the app, the SDK and the companion addon. CI overrides it from the git tag. -->
-    <Version Condition="'$(Version)' == ''">0.2.2</Version>
+    <Version Condition="'$(Version)' == ''">0.3.0</Version>
     <Authors>RainBowSheepx</Authors>
     <Company>BetterConsole</Company>
     <Product>BetterConsole for Garry's Mod</Product>

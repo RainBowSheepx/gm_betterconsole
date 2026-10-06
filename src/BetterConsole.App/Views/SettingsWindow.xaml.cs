@@ -54,7 +54,7 @@ public partial class SettingsWindow : Window
         _shell = shell;
         InitializeComponent();
         SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
-        _themeAtOpen = ThemeManager.Current;
+        _themeAtOpen = ThemeManager.Discover(Path.Combine(AppSettings.DataDirectory, "themes")).FirstOrDefault(t => t.Name == shell.Settings.Theme) ?? ThemeManager.Current;
         Welcome.Visibility = firstRun ? Visibility.Visible : Visibility.Collapsed;
 
         var s = shell.Settings;
@@ -87,7 +87,10 @@ public partial class SettingsWindow : Window
 
         _themes = ThemeManager.Discover(Path.Combine(AppSettings.DataDirectory, "themes"));
         foreach (var t in _themes) Theme.Items.Add(t.Name);
-        Theme.SelectedItem = ThemeManager.Current.Name;
+        // Compact first: selecting the theme would preview it (and in compact mode replace the palette).
+        Compact.IsChecked = s.CompactMode;
+        Theme.IsEnabled = !s.CompactMode;
+        Theme.SelectedItem = _themes.Any(t => t.Name == s.Theme) ? s.Theme : ThemeManager.Current.Name;
         TabTitles.SelectedItem = TabTitles.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.TabTitles) ?? TabTitles.Items[2];
 
         PluginList.ItemsSource = shell.Plugins.Plugins;
@@ -95,7 +98,8 @@ public partial class SettingsWindow : Window
             ? $"No plugins installed. Put plugin folders into {Path.Combine(AppContext.BaseDirectory, "plugins")}."
             : $"{shell.Plugins.Plugins.Count} plugin(s) in {Path.Combine(AppContext.BaseDirectory, "plugins")}.";
         DataDir.Text = "Settings: " + (s.FilePath ?? AppSettings.DataDirectory);
-        Closed += (_, _) => { if (!_saved) ThemeManager.Apply(_themeAtOpen); };
+        // Cancelled: back to the look of the settings (the theme and compact mode were only previewed).
+        Closed += (_, _) => { if (!_saved) Look.Apply(s.CompactMode, _themeAtOpen); };
 
         var select = _servers.FirstOrDefault(i => i.Original != null && i.Original == current?.Profile) ?? _servers[0];
         ServerList.SelectedItem = select;
@@ -409,8 +413,19 @@ public partial class SettingsWindow : Window
 
     private void OnThemePreview(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded || Compact.IsChecked == true) return;
         if (Theme.SelectedItem is string name && _themes.FirstOrDefault(t => t.Name == name) is { } t && t != ThemeManager.Current)
             ThemeManager.Apply(t);
+    }
+
+    /// <summary>Compact mode at once, to see it (kept only with Save).</summary>
+    private void OnCompactPreview(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        bool on = Compact.IsChecked == true;
+        Theme.IsEnabled = !on;
+        var theme = Theme.SelectedItem is string name ? _themes.FirstOrDefault(t => t.Name == name) ?? _themeAtOpen : _themeAtOpen;
+        Look.Apply(on, theme);
     }
 
     private static int ParseInt(string s, int fallback, int min, int max) =>
@@ -458,7 +473,8 @@ public partial class SettingsWindow : Window
         s.ShowAvatars = ShowAvatars.IsChecked == true;
         s.Editor = (Editor.SelectedItem as ComboBoxItem)?.Tag as string ?? "auto";
         s.EditorCommand = EditorCommand.Text.Trim();
-        s.Theme = ThemeManager.Current.Name;
+        s.Theme = Theme.SelectedItem as string ?? s.Theme;
+        _shell.SetCompact(Compact.IsChecked == true);
         s.TabTitles = (TabTitles.SelectedItem as ComboBoxItem)?.Tag as string ?? "auto";
         s.DisabledPlugins = _shell.Plugins.Plugins.Where(x => !x.Enabled).Select(x => x.Id).ToList();
         s.Save();

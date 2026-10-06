@@ -5,7 +5,7 @@
         xmlns:c="clr-namespace:BetterConsole.App.Controls"
         Title="{Binding WindowTitle}" Width="1280" Height="800" MinWidth="760" MinHeight="460"
         Background="{DynamicResource Brush.Background}" Foreground="{DynamicResource Brush.Text}"
-        FontFamily="{StaticResource Font.Ui}" FontSize="13" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        FontFamily="{StaticResource Font.Ui}" FontSize="{DynamicResource Font.Size}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
         Icon="Assets/app.ico" WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <Style x:Key="StatusSep" TargetType="Border">
@@ -38,10 +38,10 @@
 
         <!-- ===================================================== header: tabs + server controls -->
         <Border Background="{DynamicResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
-            <DockPanel Height="46" LastChildFill="True">
+            <DockPanel Height="{DynamicResource Size.Header}" LastChildFill="True">
                 <Image x:Name="LogoImage" Source="Assets/logo.png" Width="22" Height="22" Margin="14,0,8,0" DockPanel.Dock="Left" RenderOptions.BitmapScalingMode="HighQuality" />
                 <!-- multi-console: the logo opens the server list (the shown server's name is in the window title) -->
-                <Button x:Name="ServerButton" DockPanel.Dock="Left" Style="{StaticResource Btn.Ghost}" Margin="6,0,2,0" Padding="8,4" Height="36"
+                <Button x:Name="ServerButton" DockPanel.Dock="Left" Style="{StaticResource Btn.Ghost}" Margin="6,0,2,0" Padding="8,4" Height="{DynamicResource Size.HeaderButton}"
                         Click="OnServerButton" Visibility="Collapsed">
                     <Grid>
                         <Image Source="Assets/logo.png" Width="22" Height="22" RenderOptions.BitmapScalingMode="HighQuality" />
@@ -85,7 +85,7 @@
                         </StackPanel>
                     </Button>
                     <Button x:Name="MoreButton" Style="{StaticResource Btn.Icon}" Content="&#xE712;" ToolTip="More" Click="OnMore" />
-                    <Button Style="{StaticResource Btn.Icon}" Content="&#xE793;" ToolTip="Switch theme" Click="OnThemeClick" />
+                    <Button Style="{StaticResource Btn.Icon}" Content="&#xE793;" ToolTip="Theme and compact mode" Click="OnThemeClick" Visibility="{DynamicResource Visibility.NotCompact}" />
                     <Button Style="{StaticResource Btn.Icon}" Content="&#xE713;" ToolTip="Settings" Click="OnSettings" />
                 </StackPanel>
 
@@ -103,7 +103,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:TabVm}">
-                                <RadioButton x:Name="TabButton" Style="{StaticResource TabHeader}" GroupName="Tabs" IsChecked="{Binding IsSelected, Mode=OneWay}" Click="OnTabClick" Height="46">
+                                <RadioButton x:Name="TabButton" Style="{StaticResource TabHeader}" GroupName="Tabs" IsChecked="{Binding IsSelected, Mode=OneWay}" Click="OnTabClick" Height="{DynamicResource Size.Header}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock x:Name="TabIcon" Text="{Binding Icon}" FontFamily="{StaticResource Font.Icons}" FontSize="13" VerticalAlignment="Center" Margin="0,0,7,0" />
                                         <TextBlock x:Name="TabTitle" Text="{Binding Header}" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -167,7 +167,7 @@
                     <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.BorderStrong}" BorderThickness="1" CornerRadius="8"
                             Padding="12,9" Margin="0,8,0,0" MaxWidth="460" HorizontalAlignment="Right">
                         <Border.Effect>
-                            <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.35" />
+                            <DynamicResource ResourceKey="Effect.Shadow" />
                         </Border.Effect>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding Icon}" FontFamily="{StaticResource Font.Icons}" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"
@@ -180,72 +180,73 @@
         </ItemsControl>
 
         <!-- ===================================================== status bar -->
-        <Border Grid.Row="2" Background="{DynamicResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0">
-            <DockPanel Height="30" Margin="12,0">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" ToolTip="{Binding BridgeTooltip}" Background="Transparent">
+        <Border x:Name="StatusBar" Grid.Row="2" MouseRightButtonUp="OnStatusBarRightClick" Background="{DynamicResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0">
+            <DockPanel Height="{DynamicResource Size.StatusBar}" Margin="12,0">
+                <StackPanel x:Name="BridgeItem" Tag="addon" DockPanel.Dock="Right" Orientation="Horizontal" ToolTip="{Binding BridgeTooltip}" Background="Transparent">
                     <Border Style="{StaticResource StatusSep}" />
                     <Ellipse x:Name="BridgeDot" Width="7" Height="7" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Brush.TextMuted}" />
                     <TextBlock Text="{Binding BridgeText}" Style="{StaticResource StatusText}" />
                 </StackPanel>
 
                 <!-- In a narrow window the items that do not fit are left out, from the end. -->
-                <c:OverflowPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Map">
+                <c:OverflowPanel x:Name="StatusItems">
+                    <StackPanel Orientation="Horizontal" ToolTip="Map" Tag="map">
+                        <Border Style="{StaticResource StatusSep}" Visibility="Collapsed" />
                         <TextBlock Text="&#xE707;" FontFamily="{StaticResource Font.Icons}" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding MapText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Players / max (+ bots)">
+                    <StackPanel Orientation="Horizontal" ToolTip="Players / max (+ bots)" Tag="players">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="Players" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding PlayersText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="{Binding CpuTooltip}">
+                    <StackPanel Orientation="Horizontal" ToolTip="{Binding CpuTooltip}" Tag="cpu">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="CPU" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding CpuText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Data received from all clients">
+                    <StackPanel Orientation="Horizontal" ToolTip="Data received from all clients" Tag="in">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="In" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding InText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Data sent to all clients">
+                    <StackPanel Orientation="Horizontal" ToolTip="Data sent to all clients" Tag="out">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="Out" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding OutText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="{Binding SvTooltip}">
+                    <StackPanel Orientation="Horizontal" ToolTip="{Binding SvTooltip}" Tag="sv">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="SV" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding SvText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Ticks per second / tick rate">
+                    <StackPanel Orientation="Horizontal" ToolTip="Ticks per second / tick rate" Tag="tick">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="Tick" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding TickText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Game thread load: share of time the main thread was busy">
+                    <StackPanel Orientation="Horizontal" ToolTip="Game thread load: share of time the main thread was busy" Tag="load">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="Load" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding LoadText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Entities (edicts)">
+                    <StackPanel Orientation="Horizontal" ToolTip="Entities (edicts)" Tag="ents">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="Ents" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding EntsText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Lua memory">
+                    <StackPanel Orientation="Horizontal" ToolTip="Lua memory" Tag="lua">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="Lua" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding LuaText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" ToolTip="Private memory of srcds">
+                    <StackPanel Orientation="Horizontal" ToolTip="Private memory of srcds" Tag="ram">
                         <Border Style="{StaticResource StatusSep}" />
                         <TextBlock Text="RAM" Style="{StaticResource StatusLabel}" />
                         <TextBlock Text="{Binding MemText}" Style="{StaticResource StatusValue}" />
                     </StackPanel>
                     <!-- items of plugins and addons: as many as fit in what is left -->
-                    <ItemsControl ItemsSource="{Binding ExtraStatus}" c:OverflowPanel.CanShrink="True">
+                    <ItemsControl x:Name="ExtraStatusList" ItemsSource="{Binding ExtraStatus}" c:OverflowPanel.CanShrink="True">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <c:OverflowPanel />
@@ -253,11 +254,16 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:StatusItemVm}">
-                                <StackPanel Orientation="Horizontal" Visibility="{Binding Visible, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding Tooltip}">
-                                    <Border Style="{StaticResource StatusSep}" />
+                                <StackPanel Orientation="Horizontal" Visibility="{Binding IsShown, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding Tooltip}">
+                                    <Border x:Name="Sep" Style="{StaticResource StatusSep}" />
+                                    <TextBlock Text="{Binding Label}" Style="{StaticResource StatusLabel}" Visibility="{Binding HasLabel, Converter={StaticResource BoolToVisibility}}" />
                                     <TextBlock x:Name="T" Text="{Binding Text}" Style="{StaticResource StatusText}" />
                                 </StackPanel>
                                 <DataTemplate.Triggers>
+                                    <!-- with a label it looks like the built-in items: the value in the mono font -->
+                                    <DataTrigger Binding="{Binding HasLabel}" Value="True">
+                                        <Setter TargetName="T" Property="Style" Value="{StaticResource StatusValue}" />
+                                    </DataTrigger>
                                     <DataTrigger Binding="{Binding Foreground, Converter={StaticResource NullToCollapsed}}" Value="Visible">
                                         <Setter TargetName="T" Property="Foreground" Value="{Binding Foreground}" />
                                     </DataTrigger>
@@ -278,14 +284,14 @@
                     <TranslateTransform x:Name="SideShift" X="-340" />
                 </Border.RenderTransform>
                 <Border.Effect>
-                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.45" />
+                    <DynamicResource ResourceKey="Effect.ShadowLarge" />
                 </Border.Effect>
                 <DockPanel>
                     <!-- same height as the header, so the logo stays where it was -->
-                    <Border DockPanel.Dock="Top" Height="47" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
-                        <DockPanel>
+                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
+                        <DockPanel Height="{DynamicResource Size.Header}">
                             <Button DockPanel.Dock="Right" Style="{StaticResource Btn.Icon}" Content="&#xE711;" FontSize="11" Margin="0,0,8,0" ToolTip="Close (Esc)" Click="OnSideClose" />
-                            <Button Style="{StaticResource Btn.Ghost}" Margin="6,0,6,0" Padding="8,4" Height="36" Click="OnSideClose" HorizontalAlignment="Left">
+                            <Button Style="{StaticResource Btn.Ghost}" Margin="6,0,6,0" Padding="8,4" Height="{DynamicResource Size.HeaderButton}" Click="OnSideClose" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal">
                                     <Image Source="Assets/logo.png" Width="22" Height="22" RenderOptions.BitmapScalingMode="HighQuality" />
                                     <TextBlock Text="Servers" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource Brush.Text}" Margin="9,0,0,0" VerticalAlignment="Center" />
@@ -321,7 +327,7 @@
                         <ItemsControl x:Name="ServerList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:ServerViewModel}">
-                                    <Border x:Name="Item" CornerRadius="{StaticResource Radius}" Padding="10,8,6,9" Margin="0,0,0,4" Background="Transparent"
+                                    <Border x:Name="Item" CornerRadius="{DynamicResource Radius}" Padding="10,8,6,9" Margin="0,0,0,4" Background="Transparent"
                                             BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
                                             MouseLeftButtonUp="OnSideServerClick" MouseRightButtonUp="OnSideServerMenu">
                                         <Grid>

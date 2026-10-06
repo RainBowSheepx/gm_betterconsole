@@ -1,7 +1,8 @@
 # C# plugins
 
 A plugin is a .NET 8 class library with a class that implements `IConsolePlugin` from
-`BetterConsole.Sdk`. It can add tabs with any WPF content, status bar items and notifications,
+`BetterConsole.Sdk`. It can add tabs with any WPF content, numbers, charts and sections on the
+Statistics tab, items in the player menu, status bar items and notifications,
 watch the console output, the server state and the statistics, run commands, and exchange messages
 with Lua on the server.
 
@@ -140,12 +141,72 @@ void AddTab(string id, string header, Func<FrameworkElement> content, int order 
 void AddTab(string id, string header, string icon, Func<FrameworkElement> content, int order = 1000);  // icon: a Segoe Fluent Icons glyph ("") or a short text
 void RemoveTab(string id);
 IStatusItem AddStatusItem(string id, string text, string? tooltip = null, int order = 1000);
+void RemoveStatusItem(string id);
+IStatsHost Stats { get; }                     // the Statistics tab, see below
+void AddPlayerAction(string id, string text, Action<IReadOnlyList<PlayerInfo>> run,
+    string? icon = null, int order = 300, Func<PlayerInfo, bool>? appliesTo = null);
+void RemovePlayerAction(string id);
+event EventHandler<PlayerMenuEventArgs> PlayerMenuOpening;   // the whole player menu, see below
 void Notify(string message, NotifyKind kind = NotifyKind.Info);
-string ThemeName { get; }
+string ThemeName { get; }                     // "Compact" in compact mode
 event EventHandler<string> ThemeChanged;
 ```
 
-`IStatusItem` has `Text`, `Tooltip`, `Visible` and `Argb` (text colour, 0 = theme default).
+`IStatusItem` has `Text`, `Tooltip`, `Visible`, `Argb` (text colour, 0 = theme default), `Label`
+(dimmed before the text, like "Players" of the built-in items) and `Name` (what the menu of the status
+bar lists; the user can hide any item there).
+
+### The Statistics tab: `IStatsHost`
+
+```csharp
+IStatCard AddCard(string id, string title, int order = 1000);      // a key number at the top
+IStatChart AddChart(string id, string title, IReadOnlyList<string> series, string? unit = null,
+    bool wide = false, int order = 1000);                          // with the built-in charts
+void AddSection(string id, string? title, Func<FrameworkElement> content, int order = 1000);  // any content, below the charts
+void Remove(string id);
+void SetBuiltInVisible(string id, bool visible);                   // "players", "chart.entities", "spikes"...
+```
+
+Cards, charts and sections of a plugin share one set of ids: adding one with an id that is taken
+replaces what had it. Each plugin has its own ids (two plugins can both have a card "map"); the same
+holds for status items and player menu items. `IStatCard` has `Title`, `Value`, `Sub` (the line
+under the value), `Tooltip` and `Argb`.
+`IStatChart.Push(params double[] values)` adds a point per series with the current time; charts
+follow the tab's time window. `order` places cards and charts among the built-in ones (10, 20, … in
+their order); the ids of the built-in parts are in [lua-api.md](lua-api.md#the-statistics-tab).
+
+```csharp
+var queue = ctx.Ui.Stats.AddCard("queue", "Queue", order: 85);
+var chart = ctx.Ui.Stats.AddChart("queue_chart", "Queue", ["waiting", "running"]);
+// once a second:
+queue.Value = waiting.ToString();
+queue.Sub = $"{running} running";
+chart.Push(waiting, running);
+```
+
+### The player menu
+
+`AddPlayerAction` adds an item to the right-click menu of the Players tab; `run` gets the selected
+players it applies to, all at once. For anything else — changing or removing items, the built-in ones
+too — handle `PlayerMenuOpening`: it has the selected players and the menu right before it opens.
+Built-in items carry a `Tag`: `"kick"`, `"ban"`, `"group"`, `"gag"`, `"mute"`, `"jail"` (both items of
+a toggle), `"copy"`, `"profile"`; items of addons carry `"lua:<id>"`, those of plugins
+`"plugin:<plugin id>:<id>"`. `icon` is a glyph of Segoe Fluent Icons, its hex code (`"E7BA"`) or a letter.
+
+```csharp
+ctx.Ui.AddPlayerAction("greet", "Greet in the chat",
+    players => ctx.Server.SendCommand("say Hello, " + string.Join(", ", players.Select(p => p.Name.Replace(";", ","))) + "!"));
+
+ctx.Ui.PlayerMenuOpening += (_, e) =>
+{
+    // Our ban system instead of ULX's.
+    var ban = e.Menu.Items.OfType<MenuItem>().FirstOrDefault(i => (string?)i.Tag == "ban");
+    if (ban != null) e.Menu.Items.Remove(ban);
+};
+```
+
+A command built from a player's name must not let the name end it: take out `;` (and quotes when
+the name is in quotes).
 
 ## Looking like the rest of the app
 
@@ -167,6 +228,12 @@ card.SetResourceReference(FrameworkElement.StyleProperty, "Card");
 
 Text boxes, combo boxes, check boxes, scroll bars, data grids, menus and tooltips are styled
 automatically.
+
+**Compact mode** (*… → Compact mode*) swaps the palette for its own and makes everything smaller.
+Brushes taken with `SetResourceReference` follow it like a theme. For sizes that should follow too,
+use the same resources the app does, also with `SetResourceReference`: `Pad.Card`, `Pad.Button`,
+`Size.Control`, `Size.Row`, `Radius`, `Radius.Large`; `Effect.Shadow` is a shadow that compact mode
+switches off.
 
 ## The sample
 

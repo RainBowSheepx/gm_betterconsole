@@ -24,9 +24,14 @@ namespace BetterConsole.App.Services;
 /// input sv_ch                 type into the console input (opens auto-completion)
 /// key Down                    Down, Up, Tab, Escape, Enter
 /// expand server 0             expand the n-th server error (client: n-th player)
-/// expand client 0 1           player 0, his error 1
+/// expand client 0 1           player 0, their error 1
 /// menu players 0              open the context menu of a player row
 /// prof on|off
+/// compact on|off
+/// statusmenu [click name | shot path.png | close]
+/// menudump path.txt           the items of the open player menu
+/// runaction lua:id k=v        an addon item for the selected players
+/// statsparts path.txt         built-in parts of the Statistics tab that are shown
 /// shot docs/images/x.png      the window with a drawn title bar, plus open popups
 /// quit
 /// </code>
@@ -318,11 +323,56 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                     ShotElement(wc, w.Background, a[1], w.Title);
                 break;
             }
+            case "compact":
+                shell.SetCompact(arg == "on");
+                await Task.Delay(500);
+                break;
+            case "statusmenu":
+                // statusmenu  (open the menu of the status bar)  |  statusmenu click <name>  (toggle that item)  |  statusmenu shot path.png
+                if (arg.StartsWith("click "))
+                {
+                    var name = arg[6..];
+                    if (_statusMenu?.Items.OfType<System.Windows.Controls.MenuItem>().FirstOrDefault(m => m.Header is string h && h.StartsWith(name, StringComparison.OrdinalIgnoreCase)) is { } mi)
+                    {
+                        mi.IsChecked = !mi.IsChecked;
+                        mi.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.MenuItem.ClickEvent));
+                    }
+                }
+                else if (arg.StartsWith("shot ") && _statusMenu is { ActualWidth: > 0 } sm)
+                {
+                    using var fs = File.Create(arg[5..]);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(Snapshot(sm, sm.ActualWidth, sm.ActualHeight, 1.25)));
+                    enc.Save(fs);
+                }
+                else if (arg == "close" && _statusMenu != null) _statusMenu.IsOpen = false;
+                else _statusMenu = window.ScriptStatusMenu();
+                await Task.Delay(400);
+                break;
+            case "menudump":
+                // menudump path.txt  (the items of the menu opened with "menu players n")
+                if (Vm.FindTab("players")?.Content is PlayersView dmv) File.WriteAllLines(arg, dmv.ScriptMenuItems());
+                break;
+            case "runaction":
+                // runaction lua:slay reason=text amount=5  (an addon's player item for the selection, as if its dialog said OK)
+            {
+                var a = arg.Split(' ');
+                var values = a.Skip(1).Select(p => p.Split('=', 2)).Where(p => p.Length == 2).ToDictionary(p => p[0], p => p[1].Replace('_', ' '));
+                if (Vm.FindTab("players")?.Content is PlayersView rpv) rpv.ScriptRunAction(a[0], values);
+                await Task.Delay(500);
+                break;
+            }
+            case "statsparts":
+                // statsparts path.txt  (the built-in parts of the Statistics tab that are shown)
+                if (Vm.FindTab("stats")?.Content is StatsView stv) File.WriteAllLines(arg, stv.ScriptVisibleParts());
+                break;
             case "quit":
                 window.Close();
                 break;
         }
     }
+
+    private System.Windows.Controls.ContextMenu? _statusMenu;
 
     private static System.Windows.Controls.ContextMenu? FindContextMenu(DependencyObject node)
     {

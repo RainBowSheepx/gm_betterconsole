@@ -47,7 +47,7 @@ public partial class App : Application
         }
 
         var themes = ThemeManager.Discover(Path.Combine(AppSettings.DataDirectory, "themes"));
-        ThemeManager.Apply(themes.FirstOrDefault(t => t.Name.Equals(settings.Theme, StringComparison.OrdinalIgnoreCase)) ?? ThemePalette.Dark);
+        Look.Apply(settings.CompactMode, themes.FirstOrDefault(t => t.Name.Equals(settings.Theme, StringComparison.OrdinalIgnoreCase)) ?? ThemePalette.Dark);
 
         Log.Write($"start {typeof(App).Assembly.GetName().Version}, data {AppSettings.DataDirectory}, profile {profile ?? "(default)"}");
         new AppShell(settings).Start(uiScript);
