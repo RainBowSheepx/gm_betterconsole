@@ -50,7 +50,8 @@ in your server or its addons.
   to 1 hour; **lag spikes** with what each long frame was made of (the slowest timer, the Lua
   collector, physics; with detailed capture the slowest hooks and net messages too, and the engine's
   own profiler); an on-demand **Lua profiler** for
-  hooks, timers, net messages and entity classes.
+  hooks, timers, net messages and entity classes. Right-click anywhere on the page to hide what you
+  do not need.
 - **Status bar** with CPU, players, in/out, `sv` fps ± variance, tick, load, entities, Lua and RAM;
   right-click it to choose what it shows.
 - **Themes**: Dark, Light, Midnight, Graphite — and your own as a small JSON file. **Compact mode**:

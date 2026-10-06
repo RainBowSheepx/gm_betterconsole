@@ -35,7 +35,7 @@ Hooks:
 BetterConsole = BetterConsole or {}
 local BC = BetterConsole
 
-BC.Version = "0.3.0"
+BC.Version = "0.3.1"
 BC.Registry = BC.Registry or { tabs = {}, order = {}, status = {} }
 local R = BC.Registry
 R.statsHidden = R.statsHidden or {}   -- [id] = true: built-in parts of the Statistics tab that are hidden

@@ -162,6 +162,13 @@ Both error tabs have a filter box, *Copy all* and *Clear*.
 
 Charts show 1 minute to 1 hour (buttons on the top right); hover them for exact values.
 
+**Right-click anywhere on the Statistics page** (a number, a chart, a section or empty space) to hide
+what you do not need: *Hide "…"* for the number, chart or section under the pointer, and every part to
+show or hide again in the submenus *Numbers*, *Charts*, *Sections* and *From addons and plugins*.
+*Show all you hid* brings back what you hid; parts an addon or a plugin hides are greyed out there.
+The choice is the same for every server and is saved when BetterConsole closes. Over text that can be
+selected the right-click opens its Copy menu instead.
+
 Server addons and plugins can add numbers, charts and sections of their own here (money in the economy,
 a job queue…) and hide built-in parts they make redundant: [lua-api.md](lua-api.md#the-statistics-tab).
 

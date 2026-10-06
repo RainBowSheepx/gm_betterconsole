@@ -72,6 +72,11 @@ public sealed class AppSettings
     public bool PlayerSortDescending { get; set; } = true;
 
     public int StatsWindowMinutes { get; set; } = 5;
+    /// <summary>
+    /// Parts of the Statistics tab the user hid (right-click it): built-in ids ("fps", "chart.load", "spikes"…),
+    /// "lua:id" for those of addons, "plugin:…" for those of plugins.
+    /// </summary>
+    public List<string> StatsHidden { get; set; } = new();
 
     /// <summary>Tab headers: "show" (icon and title), "icons" (icon only) or "auto" (icon only when the titles do not fit).</summary>
     public string TabTitles { get; set; } = "auto";
@@ -156,6 +161,7 @@ public sealed class AppSettings
         PlayerColumnsHidden ??= new();
         PlayerColumnsKnown ??= new();
         StatusHidden ??= new();
+        StatsHidden ??= new();
     }
 
     public void Save()

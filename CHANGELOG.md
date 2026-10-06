@@ -3,6 +3,13 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.3.1 - 2026-10-06
+
+- **Right-click anywhere on the Statistics page** to hide numbers, charts and sections you do not
+  need — the built-in ones and those of addons and plugins: *Hide "…"* for the one under the
+  pointer, the rest in submenus, *Show all you hid* to bring them back. Saved when BetterConsole
+  closes.
+
 ## v0.3.0 - 2026-10-06
 
 - **Compact mode** (*… → Compact mode*, or *Settings → Appearance*): smaller controls, square

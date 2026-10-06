@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using BetterConsole.App.Controls;
 using BetterConsole.App.ViewModels;
 
@@ -49,6 +50,9 @@ public partial class StatsView : UserControl
         IsVisibleChanged += (_, e) => { if ((bool)e.NewValue) OnUpdated(); };
         vm.StatsExtras.Widgets.CollectionChanged += (_, _) => SyncExtras();
         vm.StatsHiddenChanged += ApplyHidden;
+        // What the user hides applies to every server; subscribed while on screen, so a removed server's view goes.
+        Loaded += (_, _) => { UserHiddenChanged -= ApplyHidden; UserHiddenChanged += ApplyHidden; ApplyHidden(); };
+        Unloaded += (_, _) => UserHiddenChanged -= ApplyHidden;
         UpdateBudget();
         UpdateProfiler();
         UpdateNote();
@@ -104,6 +108,7 @@ public partial class StatsView : UserControl
         Extras.Visibility = Extras.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         StatsLayout.Arrange(Charts);
         StatsLayout.Arrange(Extras);
+        ApplyHidden();
     }
 
     /// <summary>The built-in children (by their Tag) and the widgets' views, sorted by order; built-in ones first on a tie.</summary>
@@ -151,14 +156,183 @@ public partial class StatsView : UserControl
         return view;
     }
 
-    /// <summary>Built-in parts an addon or a plugin hid.</summary>
+    /// <summary>
+    /// Built-in parts an addon or a plugin hid, and every part the user hid (right-click the tab). The
+    /// user's choice is the same on every server and is saved when BetterConsole closes.
+    /// </summary>
     private void ApplyHidden()
     {
-        foreach (var e in Kpis.Children.OfType<FrameworkElement>().Concat(Charts.Children.OfType<FrameworkElement>()).Append(SpikesCard).Append(ProfilerCard))
+        var user = _vm.Settings.StatsHidden;
+        foreach (var e in BuiltInParts())
         {
-            if (e.Tag is not string id || !(KpiIds.Contains(id) || ChartIds.Contains(id) || id is "spikes" or "profiler")) continue;
-            e.Visibility = _vm.IsStatHidden(id) ? Visibility.Collapsed : Visibility.Visible;
+            var id = (string)e.Tag;
+            e.Visibility = _vm.IsStatHidden(id) || user.Contains(id) ? Visibility.Collapsed : Visibility.Visible;
         }
+        foreach (var (w, view) in _extraViews)
+            view.Visibility = user.Contains(KeyOf(w)) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private IEnumerable<FrameworkElement> BuiltInParts() =>
+        Kpis.Children.OfType<FrameworkElement>().Concat(Charts.Children.OfType<FrameworkElement>()).Append(SpikesCard).Append(ProfilerCard)
+            .Where(e => e.Tag is string id && (KpiIds.Contains(id) || ChartIds.Contains(id) || id is "spikes" or "profiler"));
+
+    // ------------------------------------------------------------------------------ hiding parts (right-click)
+
+    private static readonly string[] KpiNames =
+        ["Server FPS", "Frame time", "Game thread load", "Ticks / second", "CPU (stats)", "Memory", "Lua memory", "Players", "Entities", "Network", "Uptime"];
+    private static readonly string[] ChartNames = ["Frame time", "Load", "Rate", "Memory", "Network", "Players", "Entities"];
+    private static readonly (string Id, string Name)[] Sections = [("spikes", "Lag spikes"), ("profiler", "Lua profiler")];
+
+    /// <summary>The user hid or showed a part: the Statistics tabs of all servers follow.</summary>
+    private static event Action? UserHiddenChanged;
+
+    /// <summary>How the user's list names a widget of an addon ("lua:id") or a plugin ("plugin:…"), apart from the built-in ids.</summary>
+    private static string KeyOf(LuaWidgetVm w) => w.Id.StartsWith("plugin:", StringComparison.Ordinal) ? w.Id : "lua:" + w.Id;
+
+    private static string NameOf(LuaWidgetVm w) => (string.IsNullOrWhiteSpace(w.Title) ? w.Id[(w.Id.LastIndexOf(':') + 1)..] : w.Title!) +
+        w switch { StatWidgetVm => " (number)", ChartWidgetVm => " (chart)", _ => "" };
+
+    private void SetUserHidden(string key, bool hidden)
+    {
+        var list = _vm.Settings.StatsHidden;
+        list.Remove(key);
+        if (hidden) list.Add(key);
+        UserHiddenChanged?.Invoke();
+    }
+
+    private void OnPartsMenu(object sender, MouseButtonEventArgs e)
+    {
+        if (HasOwnMenu(e.OriginalSource as DependencyObject, sender as DependencyObject)) return;
+        var menu = _scriptMenu = PartsMenu(PartAt(e.OriginalSource as DependencyObject));
+        menu.PlacementTarget = this;
+        menu.Placement = PlacementMode.MousePoint;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// The pointer is on something with a menu of its own, which must keep it: a text box (Copy), a scroll
+    /// bar (Scroll here, Top, Bottom) or anything with a ContextMenu (a plugin's section).
+    /// </summary>
+    private static bool HasOwnMenu(DependencyObject? from, DependencyObject? to)
+    {
+        for (var cur = from; cur != null && cur != to; cur = TreeWalk.Parent(cur))
+            if (cur is TextBoxBase or ScrollBar || (cur is FrameworkElement fe && ContextMenuService.GetContextMenu(fe) != null)) return true;
+        return false;
+    }
+
+    /// <summary>The card, chart or section the pointer is on: its key in the user's list and its name.</summary>
+    private (string Key, string Name)? PartAt(DependencyObject? d)
+    {
+        for (var cur = d; cur != null; cur = TreeWalk.Parent(cur))
+        {
+            if (cur is not FrameworkElement fe) continue;
+            if (fe.Parent != Kpis && fe.Parent != Charts && fe.Parent != Extras && fe != SpikesCard && fe != ProfilerCard) continue;
+            if (_extraViews.FirstOrDefault(x => x.Value == fe) is { Key: { } w }) return (KeyOf(w), NameOf(w));
+            if (fe.Tag is not string id) return null;
+            int k = Array.IndexOf(KpiIds, id), c = Array.IndexOf(ChartIds, id);
+            return (id, k >= 0 ? KpiNames[k] : c >= 0 ? ChartNames[c] + " (chart)" : Sections.FirstOrDefault(s => s.Id == id).Name ?? id);
+        }
+        return null;
+    }
+
+    /// <summary>"Hide …" for the part under the pointer, then every part to show or hide, and Show all.</summary>
+    private ContextMenu PartsMenu((string Key, string Name)? at)
+    {
+        var user = _vm.Settings.StatsHidden;
+        var menu = new ContextMenu();
+        if (at is { } part)
+        {
+            var hide = new MenuItem { Header = $"Hide \"{part.Name}\"" };
+            hide.Click += (_, _) => SetUserHidden(part.Key, true);
+            menu.Items.Add(hide);
+            menu.Items.Add(new Separator());
+        }
+        var all = new MenuItem { Header = "Show all you hid" };
+        var groups = new List<(MenuItem Group, string Title)>();
+        // The items stay open on click: the counts and Show all follow at once.
+        void Refresh()
+        {
+            foreach (var (group, title) in groups)
+            {
+                int hidden = group.Items.OfType<MenuItem>().Count(i => !i.IsChecked);
+                group.Header = hidden > 0 ? $"{title}  ·  {hidden} hidden" : title;
+            }
+            all.IsEnabled = user.Count > 0;
+        }
+        // A submenu per group: the whole list would be taller than many screens.
+        void Group(string title, IEnumerable<(string Key, string Name, bool ByAddon)> parts)
+        {
+            var group = new MenuItem { Header = title };
+            foreach (var (key, name, byAddon) in parts)
+            {
+                var item = new MenuItem { Header = name, IsCheckable = true, IsChecked = !byAddon && !user.Contains(key), StaysOpenOnClick = true, IsEnabled = !byAddon };
+                if (byAddon)
+                {
+                    item.ToolTip = "Hidden by an addon or a plugin";
+                    ToolTipService.SetShowOnDisabled(item, true);
+                }
+                item.Click += (_, _) =>
+                {
+                    SetUserHidden(key, !item.IsChecked);
+                    Refresh();
+                };
+                group.Items.Add(item);
+            }
+            if (group.Items.Count == 0) return;
+            groups.Add((group, title));
+            menu.Items.Add(group);
+        }
+        Group("Numbers", KpiIds.Select((id, i) => (id, KpiNames[i], _vm.IsStatHidden(id))));
+        Group("Charts", ChartIds.Select((id, i) => (id, ChartNames[i], _vm.IsStatHidden(id))));
+        Group("Sections", Sections.Select(s => (s.Id, s.Name, _vm.IsStatHidden(s.Id))));
+        // Addon parts of this server, and what the user hid of addons that are not here now (another
+        // server's, a removed addon's): so each can be shown again on its own.
+        var extras = _vm.StatsExtras.Widgets.Select(w => (KeyOf(w), NameOf(w), false)).ToList();
+        var builtIn = KpiIds.Concat(ChartIds).Concat(Sections.Select(s => s.Id)).ToHashSet();
+        foreach (var key in user.Where(k => !builtIn.Contains(k) && extras.All(x => x.Item1 != k)).ToList())
+            extras.Add((key, key[(key.LastIndexOf(':') + 1)..] + " (not here now)", false));
+        Group("From addons and plugins", extras);
+        menu.Items.Add(new Separator());
+        all.Click += (_, _) =>
+        {
+            user.Clear();
+            UserHiddenChanged?.Invoke();
+        };
+        menu.Items.Add(all);
+        Refresh();
+        return menu;
+    }
+
+    /// <summary>
+    /// For the UI script runner: a right-click (the real handler) on the innermost element of the part with
+    /// that key; returns the menu that opened.
+    /// </summary>
+    public ContextMenu? ScriptRightClick(string key)
+    {
+        var part = BuiltInParts().Concat(_extraViews.Values).FirstOrDefault(e => e.Tag as string == key || _extraViews.Any(x => x.Value == e && KeyOf(x.Key) == key));
+        if (part == null) return null;
+        DependencyObject target = part;
+        while (System.Windows.Media.VisualTreeHelper.GetChildrenCount(target) > 0) target = System.Windows.Media.VisualTreeHelper.GetChild(target, 0);
+        // MouseUp bubbles; on its way every element raises its own MouseRightButtonUp, as for a real click.
+        _scriptMenu = null;
+        ((UIElement)target).RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right) { RoutedEvent = Mouse.MouseUpEvent });
+        return _scriptMenu;
+    }
+
+    private ContextMenu? _scriptMenu;
+
+    /// <summary>For the UI script runner: the menu as a right-click on the part with that key (or on nothing) opens it.</summary>
+    public ContextMenu ScriptPartsMenu(string? key)
+    {
+        var at = key == null ? null : BuiltInParts().Concat(_extraViews.Values).FirstOrDefault(e => e.Tag as string == key || _extraViews.Any(x => x.Value == e && KeyOf(x.Key) == key));
+        _scriptMenu = PartsMenu(at == null ? null : PartAt(at));
+        _scriptMenu.PlacementTarget = this;
+        _scriptMenu.Placement = PlacementMode.Relative;
+        _scriptMenu.HorizontalOffset = 300;
+        _scriptMenu.VerticalOffset = 120;
+        _scriptMenu.IsOpen = true;
+        return _scriptMenu;
     }
 
     private void OnChartsSizeChanged(object sender, SizeChangedEventArgs e)

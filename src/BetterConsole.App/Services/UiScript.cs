@@ -32,6 +32,7 @@ namespace BetterConsole.App.Services;
 /// menudump path.txt           the items of the open player menu
 /// runaction lua:id k=v        an addon item for the selected players
 /// statsparts path.txt         built-in parts of the Statistics tab that are shown
+/// statsmenu [key | right key | click [Group/]name | dump path | shot path | close]  the Statistics tab menu
 /// shot docs/images/x.png      the window with a drawn title bar, plus open popups
 /// quit
 /// </code>
@@ -362,6 +363,46 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                 await Task.Delay(500);
                 break;
             }
+            case "statsmenu":
+                // statsmenu [key]       the right-click menu of the Statistics tab (on that part)
+                // statsmenu right <key> a right-click on that part, through the real handler
+                // statsmenu click <name> | <Group/name>, dump <path>, shot <path>, close   (the open menu)
+            {
+                if (Vm.FindTab("stats")?.Content is not StatsView stmv) break;
+                var verb = arg.Split(' ', 2)[0];
+                if (verb is "click" or "dump" or "shot" or "close")
+                {
+                    if (_statsMenu == null) break;
+                    var rest = arg.Length > verb.Length ? arg[(verb.Length + 1)..] : "";
+                    if (verb == "click")
+                    {
+                        // "Charts/Memory": in that submenu; disabled items cannot be clicked, as in the real menu.
+                        var path = rest.Split('/');
+                        var items = path.Length > 1
+                            ? _statsMenu.Items.OfType<System.Windows.Controls.MenuItem>().FirstOrDefault(m => m.Header is string h && h.StartsWith(path[0], StringComparison.OrdinalIgnoreCase))?.Items
+                            : _statsMenu.Items;
+                        var mi = items == null ? null : MenuItems(items).FirstOrDefault(m => m.IsEnabled && m.Header is string h && h.StartsWith(path[^1], StringComparison.OrdinalIgnoreCase));
+                        if (mi != null)
+                        {
+                            if (mi.IsCheckable) mi.IsChecked = !mi.IsChecked;
+                            mi.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.MenuItem.ClickEvent));
+                        }
+                    }
+                    else if (verb == "dump") File.WriteAllLines(rest, MenuLines(_statsMenu.Items, ""));
+                    else if (verb == "shot" && _statsMenu.ActualWidth > 0)
+                    {
+                        using var fs = File.Create(rest);
+                        var enc = new PngBitmapEncoder();
+                        enc.Frames.Add(BitmapFrame.Create(Snapshot(_statsMenu, _statsMenu.ActualWidth, _statsMenu.ActualHeight, 1.25)));
+                        enc.Save(fs);
+                    }
+                    else if (verb == "close") _statsMenu.IsOpen = false;
+                }
+                else if (verb == "right") _statsMenu = stmv.ScriptRightClick(arg[6..]);
+                else _statsMenu = stmv.ScriptPartsMenu(arg.Length > 0 ? arg : null);
+                await Task.Delay(400);
+                break;
+            }
             case "statsparts":
                 // statsparts path.txt  (the built-in parts of the Statistics tab that are shown)
                 if (Vm.FindTab("stats")?.Content is StatsView stv) File.WriteAllLines(arg, stv.ScriptVisibleParts());
@@ -372,7 +413,32 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
         }
     }
 
-    private System.Windows.Controls.ContextMenu? _statusMenu;
+    private System.Windows.Controls.ContextMenu? _statusMenu, _statsMenu;
+
+    /// <summary>Every item of a menu, submenus included.</summary>
+    private static IEnumerable<System.Windows.Controls.MenuItem> MenuItems(System.Windows.Controls.ItemCollection items)
+    {
+        foreach (var m in items.OfType<System.Windows.Controls.MenuItem>())
+        {
+            yield return m;
+            foreach (var sub in MenuItems(m.Items)) yield return sub;
+        }
+    }
+
+    /// <summary>A menu as text: "[x]" checked, "[ ]" not, submenus indented.</summary>
+    private static IEnumerable<string> MenuLines(System.Windows.Controls.ItemCollection items, string indent)
+    {
+        foreach (var i in items)
+        {
+            if (i is not System.Windows.Controls.MenuItem m)
+            {
+                yield return indent + "---";
+                continue;
+            }
+            yield return $"{indent}{m.Header}{(m.IsCheckable ? m.IsChecked ? " [x]" : " [ ]" : "")}{(m.IsEnabled ? "" : " (disabled)")}";
+            foreach (var sub in MenuLines(m.Items, indent + "  ")) yield return sub;
+        }
+    }
 
     private static System.Windows.Controls.ContextMenu? FindContextMenu(DependencyObject node)
     {

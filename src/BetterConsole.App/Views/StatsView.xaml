@@ -34,7 +34,8 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="{DynamicResource Pad.PageScroll}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="{DynamicResource Pad.PageScroll}"
+                  MouseRightButtonUp="OnPartsMenu" Background="Transparent">
         <StackPanel x:Name="Root">
             <!-- toolbar -->
             <DockPanel Margin="0,0,10,10">
