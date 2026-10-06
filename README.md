@@ -58,8 +58,9 @@ in your server or its addons.
   smaller and plain, without shadows, animations or avatars, for the least CPU and graphics work
   (a VPS without a graphics card draws everything in software); everything still works.
 - **Make it yours**: server addons add tabs, numbers and charts on the Statistics tab, items in the
-  player menu (a command or Lua, with a dialog), tables, logs, buttons and status items with a few
-  lines of Lua, and can hide built-in parts; C# plugins can add anything.
+  player menu (a command or Lua, with a dialog), settings forms for their console variables, live
+  tables, logs, buttons and status items with a few lines of Lua, explain lag spikes, can bring a
+  profiler of their own and hide built-in parts; C# plugins can add anything.
 - **Several servers in one app** (multi-console): a server list with state, map, players and fps that
   slides in from the logo, and a window of its own for any server. Settings are shared.
 - **Runs the server for you**: start / stop / restart, crash detection with automatic restart,
@@ -106,8 +107,9 @@ if BetterConsole then
 end
 ```
 
-Text, key/value lists, tables, logs, charts and buttons are available; everything is resent
-automatically after a map change. ➡ **[Lua API](docs/lua-api.md)** · a complete example: [`samples/lua/betterconsole_example`](samples/lua/betterconsole_example).
+Text, key/value lists, live tables, logs, charts, buttons and settings forms (console variables of
+your addon with a switch, a number box or a list) are available; everything is resent automatically
+after a map change. ➡ **[Lua API](docs/lua-api.md)** · a complete example: [`samples/lua/betterconsole_example`](samples/lua/betterconsole_example).
 
 ## Or write a C# plugin
 
@@ -133,7 +135,7 @@ Drop the DLL into `plugins\Hello\` next to BetterConsole.exe. ➡ **[Plugins](do
 |---|---|
 | [Getting started](docs/getting-started.md) | install, first start, settings, several servers |
 | [User guide](docs/user-guide.md) | every tab, the status bar, keyboard shortcuts |
-| [Lua API](docs/lua-api.md) | tabs and status items from server addons |
+| [Lua API](docs/lua-api.md) | tabs, forms, statistics, the player menu, a profiler of your own |
 | [Plugins](docs/plugins.md) | C# plugins: tabs, status bar, console and bridge events |
 | [Themes](docs/themes.md) | colour names and how to make a theme |
 | [How it works](docs/how-it-works.md) | pseudo console, the companion addon, the bridge protocol |

@@ -60,7 +60,7 @@ public sealed partial class ServerViewModel : ObservableObject
         Controller.Sampled += s => _uiActions.Enqueue(() => OnProcessSample(s));
         Controller.Bridge.ConnectionChanged += c => _uiActions.Enqueue(() => OnBridgeConnection(c));
         Controller.Bridge.MessageReceived += (t, m) => _bridgeQueue.Enqueue((t, m, DateTime.Now));
-        StatsExtras = new LuaTabVm("@stats") { ActionSink = (t, w, a) => Request("action", new { tab = t, widget = w, id = a }) };
+        StatsExtras = new LuaTabVm("@stats") { Send = (type, data) => Request(type, data) };
 
         ServerErrors.MaxItems = Settings.MaxErrorsPerList;
         ClientErrors.MaxItemsPerPlayer = Math.Max(50, Settings.MaxErrorsPerList / 2);
@@ -269,6 +269,7 @@ public sealed partial class ServerViewModel : ObservableObject
         if (newValue != null) newValue.IsSelected = true;
         MarkSeen();
         if (oldValue?.Id == "players" || newValue?.Id == "players") SendPlayerSubscription();
+        SendTabShown();
         UpdateBadges();
     }
 
@@ -282,6 +283,7 @@ public sealed partial class ServerViewModel : ObservableObject
     {
         MarkSeen();
         SendPlayerSubscription();
+        SendTabShown();
         UpdateBadges();
     }
 
@@ -297,6 +299,27 @@ public sealed partial class ServerViewModel : ObservableObject
     }
 
     private void SendPlayerSubscription() => Request("sub", new { players = IsShown && SelectedTab?.Id == "players" });
+
+    // The addon tab (or Statistics, "@stats") the companion was told is on screen.
+    private string? _shownLuaTab;
+
+    /// <summary>
+    /// Tells the companion which addon tab is seen (tab:OnShow; forms keep their values fresh only then):
+    /// the one that is selected while a window shows this server.
+    /// </summary>
+    private void SendTabShown()
+    {
+        string? now = !IsShown ? null : SelectedTab?.Id switch
+        {
+            "stats" => StatsExtras.Id,
+            { } id when id.StartsWith("lua:", StringComparison.Ordinal) => id[4..],
+            _ => null,
+        };
+        if (now == _shownLuaTab) return;
+        if (_shownLuaTab != null && BridgeConnected) Request("tabshow", new { tab = _shownLuaTab, on = false });
+        _shownLuaTab = now;
+        if (now != null && BridgeConnected) Request("tabshow", new { tab = now, on = true });
+    }
 
     /// <summary>
     /// Sends a request to the addon. A hibernating server runs no frames, so nothing would read it:
@@ -379,7 +402,7 @@ public sealed partial class ServerViewModel : ObservableObject
         text = text.Trim();
         if (text.Length == 0) return true;
         if (remember) History.Add(text);
-        if ((Stats.Capture || Controller.Pipeline.CaptureVprof) && text.Split(';').Any(c => c.TrimStart().StartsWith("vprof", StringComparison.OrdinalIgnoreCase))) PauseVprofCapture();
+        if ((EngineCapture || Controller.Pipeline.CaptureVprof) && text.Split(';').Any(c => c.TrimStart().StartsWith("vprof", StringComparison.OrdinalIgnoreCase))) PauseVprofCapture();
         if (!Controller.SendCommand(text, out var problem))
         {
             WriteAppLine(problem ?? "The command could not be sent.", true);
@@ -449,6 +472,9 @@ public sealed partial class ServerViewModel : ObservableObject
             CpuText = InText = OutText = SvText = TickText = LoadText = EntsText = LuaText = MemText = PlayersText = "—";
             // What the addon put into the app stops with the server (the next start may run without it).
             ForgetLuaExtras();
+            Stats.SetProvider(default);
+            // A new process starts with vprof off.
+            _vprofTyped = false;
         }
         if (now == ServerState.Crashed)
         {
@@ -650,6 +676,7 @@ public sealed partial class ServerViewModel : ObservableObject
                 ? "The companion addon is not connected (server still loading, map change, or the addon/module is missing)."
                 : "The server is not running.";
             Stats.Profiling = false;
+            _shownLuaTab = null;
         }
         BridgeConnectionChanged?.Invoke(connected);
     }
@@ -660,6 +687,8 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             case "hello":
                 _helloReceived = true;
+                // An addon's profiler: before the capture is asked for (it may forbid vprof).
+                Stats.SetProvider(m.TryGetProperty("profiler", out var provider) ? provider : default);
                 _clockSamples.Clear();   // a new server process: a new SysTime
                 _clockOffset = double.NaN;
                 BridgeText = "Addon: on";
@@ -684,6 +713,9 @@ public sealed partial class ServerViewModel : ObservableObject
                 foreach (var id in LuaTabs.Keys.ToList()) LuaTabRemoved?.Invoke(id);
                 LuaTabs.Clear();
                 ForgetLuaExtras();
+                // A new Lua state knows nothing of the tab on screen.
+                _shownLuaTab = null;
+                SendTabShown();
                 break;
             case "stats":
                 OnLuaStats(m);
@@ -702,6 +734,22 @@ public sealed partial class ServerViewModel : ObservableObject
                 break;
             case "prof_state":
                 Stats.Profiling = m.TryGetProperty("on", out var on) && on.ValueKind == JsonValueKind.True;
+                break;
+            case "capture_state":
+                // The companion's answer: an addon's profiler may have refused, or another took over and stopped it.
+                OnCaptureState(m.TryGetProperty("on", out var con) && con.ValueKind == JsonValueKind.True);
+                break;
+            case "prof_provider":
+                OnProfilerProvider(m);
+                break;
+            case "form_cmd":
+                // A form set a variable: in the console and its history like a command typed there.
+                if (StatsVm.Str(m, "cmd") is { Length: > 0 } fcmd)
+                {
+                    History.Add(fcmd);
+                    _appLines.Enqueue(new LineAdded(Interlocked.Decrement(ref _appLineId),
+                        new ConsoleLine { Text = fcmd, Time = DateTime.Now, Kind = ConsoleLineKind.Command }));
+                }
                 break;
             case "cmds":
                 Catalog.Load(m, Settings.CompleteServerCommandsOnly);
@@ -795,7 +843,7 @@ public sealed partial class ServerViewModel : ObservableObject
         if (id == null) return;
         if (!LuaTabs.TryGetValue(id, out var tab))
         {
-            tab = new LuaTabVm(id) { ActionSink = (t, w, a) => Request("action", new { tab = t, widget = w, id = a }) };
+            tab = new LuaTabVm(id) { Send = (type, data) => Request(type, data) };
             LuaTabs[id] = tab;
             tab.Title = StatsVm.Str(m, "title") ?? id;
             tab.Icon = LuaTabVm.ParseIcon(StatsVm.Str(m, "icon"));
@@ -1114,7 +1162,39 @@ public sealed partial class ServerViewModel : ObservableObject
         }
         Stats.Capture = on;
         ApplyCapture();
-        if (on) Controller.Pipeline.CaptureVprof = _vprofPause == null;
+        AfterCapture(on);
+    }
+
+    /// <summary>
+    /// The engine's part of the capture (vprof): typed by the app unless an addon's profiler has the capture and
+    /// said vprof = false (it reads the engine's profiler itself; vprof_dump_spikes would restart it every frame).
+    /// </summary>
+    private bool EngineCapture => Stats.Capture && Stats.ProviderVprof;
+
+    // vprof's typed state: what the app turned on (and has to turn off again).
+    private bool _vprofTyped;
+
+    /// <summary>The companion said whether the capture runs.</summary>
+    private void OnCaptureState(bool on)
+    {
+        if (on == Stats.Capture) return;
+        Stats.Capture = on;
+        // Also on: the reply to an earlier "off" may have turned vprof off in between (a quick off → on).
+        ApplyEngineCapture();
+        AfterCapture(on);
+    }
+
+    /// <summary>An addon set its profiler (or went back to the built-in one): what ran was stopped by the companion.</summary>
+    private void OnProfilerProvider(JsonElement m)
+    {
+        Stats.SetProvider(m.TryGetProperty("name", out _) ? m : default);
+        // vprof the app turned on for the capture goes off again when the new profiler forbids it.
+        if (!Stats.ProviderVprof && _vprofTyped) ApplyEngineCapture();
+    }
+
+    private void AfterCapture(bool on)
+    {
+        if (on) Controller.Pipeline.CaptureVprof = _vprofPause == null && Stats.ProviderVprof;
         else
         {
             _vprofPending.Clear();
@@ -1127,7 +1207,7 @@ public sealed partial class ServerViewModel : ObservableObject
                 t.Stop();
                 if (_vprofOff != t) return;
                 _vprofOff = null;
-                if (!Stats.Capture) Controller.Pipeline.CaptureVprof = false;
+                if (!EngineCapture) Controller.Pipeline.CaptureVprof = false;
             };
             _vprofOff = t;
             t.Start();
@@ -1151,7 +1231,7 @@ public sealed partial class ServerViewModel : ObservableObject
             t.Stop();
             if (_vprofPause != t) return;
             _vprofPause = null;
-            Controller.Pipeline.CaptureVprof = Stats.Capture;
+            Controller.Pipeline.CaptureVprof = EngineCapture;
         };
         _vprofPause = t;
         t.Start();
@@ -1161,9 +1241,15 @@ public sealed partial class ServerViewModel : ObservableObject
     private void ApplyCapture()
     {
         if (BridgeConnected) Request("capture", new { on = Stats.Capture });
-        // The engine's part goes through the console: switched off also while the addon is away.
+        ApplyEngineCapture();
+    }
+
+    /// <summary>The engine's part goes through the console: vprof on for the capture, off again after it.</summary>
+    private void ApplyEngineCapture()
+    {
+        // Switched off also while the addon is away.
         if (!IsRunning || Stats.Capture && !BridgeConnected) return;
-        if (Stats.Capture)
+        if (EngineCapture)
         {
             // vprof_dump_spikes takes a frame rate: the frames slower than it are reported, the same ones as the addon's spikes.
             double tick = double.IsNaN(Stats.TickRate) || Stats.TickRate <= 0 ? 33 : Stats.TickRate;
@@ -1171,11 +1257,14 @@ public sealed partial class ServerViewModel : ObservableObject
             Controller.Pipeline.VprofMinFrameMs = 1000 / fps;
             Controller.TypeInternal("vprof_on");
             Controller.TypeInternal("vprof_dump_spikes " + fps.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            _vprofTyped = true;
         }
-        else
+        else if (_vprofTyped || Stats.ProviderVprof)
         {
+            // Never typed while an addon's profiler forbids vprof, unless the app turned it on before that.
             Controller.TypeInternal("vprof_dump_spikes 0");
             Controller.TypeInternal("vprof_off");
+            _vprofTyped = false;
         }
     }
 
@@ -1201,10 +1290,17 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             var (at, report) = _vprofPending[i];
             if (at > summaryAt) continue;
-            var rows = Stats.Spikes.Where(r => !r.HasEngine).ToList();
+            // Rows whose engine part an addon gave stay candidates: the report of their frame goes to none, not to a neighbour.
+            var rows = Stats.Spikes.Where(r => !r.HasEngine || r.EngineFromAddon && !r.VprofTaken).ToList();
             int k = VprofMatch.Pick(rows.Select(r => (r.Time, r.Ms, r.IsPrecise)).ToList(), at, report.FrameMs, tickMs, _vprofLatency);
             if (k < 0) continue;
             var row = rows[k];
+            if (row.EngineFromAddon)
+            {
+                row.VprofTaken = true;
+                _vprofPending.RemoveAt(i--);
+                continue;
+            }
             row.AttachEngine(report);
             // How late the console usually is, from the reports that found their frame.
             if (row.IsPrecise) _vprofLatency = Math.Clamp(0.8 * _vprofLatency + 0.2 * (at - row.Time).TotalSeconds, 0, 0.15);

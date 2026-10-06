@@ -41,36 +41,13 @@ public static class CompanionInstaller
             return new Result(0, 0, warnings);
         }
 
-        var addonRoot = Path.Combine(game, "addons", "betterconsole");
-        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in asm.GetManifestResourceNames())
-        {
-            if (!name.StartsWith(AddonPrefix, StringComparison.Ordinal)) continue;
-            var rel = name[AddonPrefix.Length..].Replace('\\', '/');
-            var target = Path.GetFullPath(Path.Combine(addonRoot, rel.Replace('/', Path.DirectorySeparatorChar)));
-            if (!target.StartsWith(addonRoot, StringComparison.OrdinalIgnoreCase)) continue;
-            expected.Add(target);
-            using var s = asm.GetManifestResourceStream(name)!;
-            try
-            {
-                if (WriteIfChanged(s, target)) written++; else unchanged++;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                warnings.Add($"Could not write {rel}: {ex.Message}");
-            }
-        }
-        // Files of an older version that no longer exist.
-        if (Directory.Exists(addonRoot))
-        {
-            foreach (var f in Directory.EnumerateFiles(Path.Combine(addonRoot), "*.lua", SearchOption.AllDirectories))
-            {
-                if (!expected.Contains(Path.GetFullPath(f)))
-                {
-                    try { File.Delete(f); } catch { }
-                }
-            }
-        }
+        var files = asm.GetManifestResourceNames()
+            .Where(n => n.StartsWith(AddonPrefix, StringComparison.Ordinal))
+            .Select(n => (Rel: n[AddonPrefix.Length..], Open: (Func<Stream>)(() => asm.GetManifestResourceStream(n)!)))
+            .ToList();
+        var addon = InstallAddon(game, files, warnings);
+        written += addon.Written;
+        unchanged += addon.Unchanged;
 
         bool is64 = ServerProfile.Is64Bit(exePath);
         var module = ModuleName(is64);
@@ -90,6 +67,54 @@ public static class CompanionInstaller
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     warnings.Add($"Could not update {module} (is another server using it?): {ex.Message}");
+                }
+            }
+        }
+        return new Result(written, unchanged, warnings);
+    }
+
+    /// <summary>
+    /// Writes the addon's files into garrysmod/addons/betterconsole and deletes the .lua files of an older version
+    /// there. The folder may be written with '/' (a path typed or pasted that way): it is compared in its full form.
+    /// Nothing is deleted unless at least one file of the addon is there now.
+    /// </summary>
+    public static Result InstallAddon(string game, IReadOnlyList<(string Rel, Func<Stream> Open)> files, List<string>? warnings = null)
+    {
+        warnings ??= new List<string>();
+        int written = 0, unchanged = 0;
+        var addonRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(game, "addons", "betterconsole"))) + Path.DirectorySeparatorChar;
+        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, open) in files)
+        {
+            var rel = name.Replace('\\', '/');
+            var target = Path.GetFullPath(Path.Combine(addonRoot, rel.Replace('/', Path.DirectorySeparatorChar)));
+            if (!target.StartsWith(addonRoot, StringComparison.OrdinalIgnoreCase)) continue;
+            expected.Add(target);
+            try
+            {
+                using var s = open();
+                if (WriteIfChanged(s, target)) written++; else unchanged++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                warnings.Add($"Could not write {rel}: {ex.Message}");
+            }
+        }
+        if (written + unchanged == 0)
+        {
+            // Without any file of its own in place, every .lua file there would look like an old one.
+            warnings.Add($"No file of the companion addon could be written to \"{addonRoot}\": the server starts without it " +
+                         "(no Lua errors, statistics or addon tabs in BetterConsole).");
+            return new Result(0, 0, warnings);
+        }
+        // Files of an older version that no longer exist.
+        if (Directory.Exists(addonRoot))
+        {
+            foreach (var f in Directory.EnumerateFiles(addonRoot, "*.lua", SearchOption.AllDirectories))
+            {
+                if (!expected.Contains(Path.GetFullPath(f)))
+                {
+                    try { File.Delete(f); } catch { }
                 }
             }
         }

@@ -3,6 +3,40 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.4.0 - 2026-10-06
+
+- **Updates**: BetterConsole asks GitHub for a newer release when it starts (*Settings → Updates* to
+  switch it off) and offers it in the `…` menu, which also has *Check for updates*. Nothing is
+  downloaded or installed by itself.
+- **Settings forms for addons** (`tab:Form`): console variables of an addon (and values of its own) as
+  switches, numbers, text boxes and lists, with their help, default (a mark and a reset button when
+  changed) and range from the server; a change is a console command of the server, shown in the console
+  and its history; changes from the console, rcon or other addons show within a second. Protected
+  variables stay hidden; optional ones of other parts can be shown greyed out. A narrow window puts the
+  control under its text.
+- **Tables of addons are live**: rows are updated in place by a key column (no blinking, the scroll
+  position and selection stay), a click on a header sorts them (numbers as numbers), the order holds
+  still under the pointer; columns can have a width and an alignment; cells with Lua paths open in the
+  editor.
+- **Buttons of addons can ask for values** first (text, numbers, lists), like the items of the player
+  menu.
+- **A profiler of an addon's own** (`BetterConsole.SetProfiler`): it gets the profiler card and the
+  detailed capture, the built-in wrappers stay out of its way, and it can forbid the vprof commands of
+  the capture (they restart the engine's profile every frame). Its reports use the built-in tables, with
+  a KB/s column for allocated Lua memory and tables of its own; columns without numbers are left out.
+- **Addons explain lag spikes** (`BetterConsole.Stats:OnSpike`): chips, Lua lines and the engine's part
+  of a long frame's row.
+- Addons hear when their tab is shown (`tab:OnShow`) and collect expensive data only then.
+- The companion's frame hook costs about a microsecond now: it no longer asks the engine for the
+  entity count every frame (that walked the entity list: ~20-50 µs a frame with 2000 entities).
+- Fixed: a widget an addon made without options (`tab:Log("log")`) did not appear.
+- The profiler and the detailed capture stop at once when BetterConsole disconnects (was within two
+  seconds, so a quick reconnect could leave them running unseen).
+- Fixed: with the server folder written with `/` (`F:/servers/gmod`) the installer of the companion
+  addon deleted the addon instead of updating it, and the server ran without it with no word about it.
+  Now the files are written, and BetterConsole says so when it cannot write any.
+- The example addon has a *Settings* tab with all of it.
+
 ## v0.3.1 - 2026-10-06
 
 - **Right-click anywhere on the Statistics page** to hide numbers, charts and sections you do not

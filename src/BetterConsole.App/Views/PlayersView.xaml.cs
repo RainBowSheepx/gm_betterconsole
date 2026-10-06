@@ -457,23 +457,10 @@ public partial class PlayersView : UserControl
 
     private void Execute(PlayerActionDef a, IReadOnlyList<PlayerRowVm> targets, Dictionary<string, string> values)
     {
-        var typed = new Dictionary<string, object>();
-        foreach (var f in a.Fields)
+        if (PlayerActionDef.TypedValues(a.Fields, values, out var typed) is { } problem)
         {
-            var v = values.GetValueOrDefault(f.Id, f.Default);
-            if (f.Number)
-            {
-                // "NaN", "Infinity", "1e400" parse as numbers, but are none (and JSON cannot carry them).
-                if (!double.TryParse(v.Trim().Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n))
-                {
-                    _vm.Notify($"{f.Label}: a number is needed.", NotifyKind.Warning);
-                    return;
-                }
-                v = n.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                typed[f.Id] = n;
-            }
-            else typed[f.Id] = v;
-            values[f.Id] = v;
+            _vm.Notify(problem, NotifyKind.Warning);
+            return;
         }
         // A plugin's code, else the addon's onRun (it wins over a command), else the command.
         if (a.PluginRun != null) a.PluginRun(targets.Select(t => t.ToInfo()).ToList());

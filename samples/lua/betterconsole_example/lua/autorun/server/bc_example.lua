@@ -4,8 +4,10 @@ Example: a "Server overview" tab in BetterConsole, made by a server addon.
 Copy this folder into garrysmod/addons/ of your server. When the server runs under BetterConsole the tab
 appears next to the built-in ones; without BetterConsole every call below does nothing.
 
-It shows every widget type: KeyValue, Chart, Log, Table, Buttons, Text, a status bar item, a key number and a chart
-on the Statistics tab, and items in the right-click menu of the Players tab.
+It shows the widget types KeyValue, Chart, Log, Table, Buttons, Text, a status bar item, a key number and a chart
+on the Statistics tab, and items in the right-click menu of the Players tab. bc_example_settings.lua next to it
+shows what came with version 0.4: a settings form, buttons with a dialog, live tables, a profiler of its own and
+explanations of lag spikes.
 ]]
 if not BetterConsole then return end
 

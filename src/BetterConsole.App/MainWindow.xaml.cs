@@ -53,7 +53,13 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         PreviewKeyDown += OnKeys;
         shell.ServersChanged += UpdateMode;
-        Closed += (_, _) => shell.ServersChanged -= UpdateMode;
+        shell.UpdateChanged += ShowUpdateBadge;
+        Closed += (_, _) =>
+        {
+            shell.ServersChanged -= UpdateMode;
+            shell.UpdateChanged -= ShowUpdateBadge;
+        };
+        ShowUpdateBadge();
 
         _attention = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _attention.Tick += (_, _) => UpdateAttention();
@@ -304,13 +310,13 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------------------ toasts
 
     /// <summary>A notification in the corner. One of another server than the shown one names it.</summary>
-    public void ShowToast(ServerViewModel? from, string text, NotifyKind kind)
+    public void ShowToast(ServerViewModel? from, string text, NotifyKind kind, TimeSpan? duration = null)
     {
         if (from != null && _shell.MultiServer && from != _vm) text = $"{from.DisplayName}: {text}";
         var t = new ToastVm(text, kind);
         _toasts.Add(t);
         while (_toasts.Count > 4) _toasts.RemoveAt(0);
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(kind == NotifyKind.Error ? 8 : 4.5) };
+        var timer = new DispatcherTimer { Interval = duration ?? TimeSpan.FromSeconds(kind == NotifyKind.Error ? 8 : 4.5) };
         timer.Tick += (_, _) => { timer.Stop(); _toasts.Remove(t); };
         timer.Start();
     }
@@ -700,11 +706,21 @@ public partial class MainWindow : Window
         if (_vm == null) return;
         var vm = _vm;
         var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = PlacementMode.Bottom };
-        void Add(string header, Action a, bool enabled = true)
+        LastMoreMenu = menu;
+        MenuItem Add(string header, Action a, bool enabled = true)
         {
             var mi = new MenuItem { Header = header, IsEnabled = enabled };
             mi.Click += (_, _) => a();
             menu.Items.Add(mi);
+            return mi;
+        }
+        if (_shell.AvailableUpdate is { } update)
+        {
+            var mi = Add($"Download BetterConsole {update.Version.ToString(3)}…", () => OpenUrl(update.Url));
+            mi.FontWeight = FontWeights.SemiBold;
+            mi.SetResourceReference(ForegroundProperty, "Brush.Accent");
+            mi.ToolTip = $"A newer version is on GitHub (this is {UpdateChecker.Current.ToString(3)}): its release page has the downloads and what is new.";
+            menu.Items.Add(new Separator());
         }
         Add("Kill the server process", () =>
         {
@@ -737,8 +753,54 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         Add("Documentation", () => OpenUrl("https://github.com/RainBowSheepx/gm_betterconsole/tree/main/docs"));
         Add("Report a problem", () => OpenUrl("https://github.com/RainBowSheepx/gm_betterconsole/issues"));
-        Add($"About BetterConsole {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}", () => OpenUrl("https://github.com/RainBowSheepx/gm_betterconsole"));
+        Add("Check for updates", () => _ = CheckForUpdatesAsync());
+        Add($"About BetterConsole {UpdateChecker.Current.ToString(3)}", () => OpenUrl("https://github.com/RainBowSheepx/gm_betterconsole"));
         menu.IsOpen = true;
+    }
+
+    /// <summary>For the UI script runner: the … menu opened last.</summary>
+    public ContextMenu? LastMoreMenu { get; private set; }
+
+    /// <summary>… → Check for updates: asks GitHub now and says what it found.</summary>
+    public async Task CheckForUpdatesAsync()
+    {
+        ShowToast(null, "Checking for updates…", NotifyKind.Info);
+        var r = await UpdateChecker.CheckAsync();
+        var current = UpdateChecker.Current.ToString(3);
+        if (r.Error != null)
+        {
+            ShowToast(null, "Could not check for updates: " + r.Error, NotifyKind.Warning);
+            return;
+        }
+        _shell.SetUpdate(r.Latest);
+        if (r.Latest is not { } latest)
+        {
+            ShowToast(null, "No release of BetterConsole is on GitHub yet.", NotifyKind.Info);
+            return;
+        }
+        if (!r.IsNewer)
+        {
+            ShowToast(null, latest.Version == UpdateChecker.Current ? $"BetterConsole {current} is the latest version." : $"This is {current}; the latest release is {latest.Version.ToString(3)}.", NotifyKind.Success);
+            return;
+        }
+        var when = latest.Published is { } p ? $" (released {p.LocalDateTime:yyyy-MM-dd})" : "";
+        if (PromptDialog.Confirm(this, "A new version", $"BetterConsole {latest.Version.ToString(3)}{when} is available; this is {current}. Its release page has the downloads and what is new.", "Open the release page"))
+            OpenUrl(latest.Url);
+    }
+
+    /// <summary>A dot on the … button while a newer version is available.</summary>
+    private void ShowUpdateBadge()
+    {
+        if (_shell.AvailableUpdate is not { } update)
+        {
+            MoreButton.Content = "\uE712";
+            MoreButton.ToolTip = "More";
+            return;
+        }
+        var dot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -2, -3, 0) };
+        dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "Brush.Accent");
+        MoreButton.Content = new Grid { Children = { new TextBlock { Text = "\uE712" }, dot } };
+        MoreButton.ToolTip = $"More · BetterConsole {update.Version.ToString(3)} is available";
     }
 
     private static void OpenFolder(string path)

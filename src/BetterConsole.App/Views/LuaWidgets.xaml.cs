@@ -18,14 +18,7 @@ public partial class LuaWidgets : ResourceDictionary
     private void OnTableLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is not DataGrid grid || grid.DataContext is not TableWidgetVm vm || !_bound.TryAdd(grid, grid)) return;
-        void Build()
-        {
-            grid.Columns.Clear();
-            for (int i = 0; i < vm.Columns.Length; i++)
-                grid.Columns.Add(new DataGridTextColumn { Header = vm.Columns[i], Binding = new Binding($"[{i}]"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        }
-        Build();
-        vm.PropertyChanged += (_, pe) => { if (pe.PropertyName == nameof(TableWidgetVm.Columns)) Build(); };
+        LiveTable.Attach(grid, vm);
     }
 
     private void OnChartLoaded(object sender, RoutedEventArgs e)
@@ -52,8 +45,34 @@ public partial class LuaWidgets : ResourceDictionary
         if (sender is not Button { DataContext: LuaButton lb } b) return;
         var widget = FindWidget(b);
         if (widget == null) return;
-        if (!string.IsNullOrEmpty(lb.Confirm) && !PromptDialog.Confirm(Window.GetWindow(b), lb.Text, lb.Confirm, lb.Text, lb.Style == "danger")) return;
-        widget.Press(lb);
+        var owner = Window.GetWindow(b);
+        if (lb.Fields.Count == 0)
+        {
+            if (!string.IsNullOrEmpty(lb.Confirm) && !PromptDialog.Confirm(owner, lb.Text, lb.Confirm, lb.Text, lb.Style == "danger")) return;
+            widget.Press(lb);
+            return;
+        }
+        // The same dialog as the items of the player menu; the question is its description.
+        var values = new Dictionary<string, string>();
+        foreach (var f in lb.Fields) values[f.Id] = f.Default;
+        while (true)
+        {
+            var d = new PromptDialog(owner, lb.Text, lb.Confirm, lb.Text, lb.Style == "danger");
+            foreach (var f in lb.Fields)
+            {
+                if (f.Choices is { Count: > 0 } choices) d.Choice(f.Id, f.Label, choices, values[f.Id], f.Editable);
+                else d.Text(f.Id, f.Label, values[f.Id]);
+            }
+            if (d.ShowDialog() != true) return;
+            foreach (var f in lb.Fields) values[f.Id] = d[f.Id];
+            if (PlayerActionDef.TypedValues(lb.Fields, new Dictionary<string, string>(values), out var typed) is not { } problem)
+            {
+                widget.Press(lb, typed);
+                return;
+            }
+            // Said what is wrong; the dialog again with what was typed.
+            if (!PromptDialog.Confirm(owner, lb.Text, problem, "Change it")) return;
+        }
     }
 
     private static ButtonsWidgetVm? FindWidget(DependencyObject d)

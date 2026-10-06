@@ -69,11 +69,43 @@ public sealed class AppShell
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             await StartupAsync();
             if (uiScript != null) _ = new UiScriptRunner(Main, this, uiScript).RunAsync();
+            // Not while a script drives the window (screenshots, tests).
+            else if (Settings.CheckForUpdates) _ = CheckUpdatesAtStartAsync();
         };
         Main.Show();
     }
 
     private static Dispatcher Dispatcher => Application.Current.Dispatcher;
+
+    // ------------------------------------------------------------------------------ updates
+
+    /// <summary>A newer release of BetterConsole on GitHub (found at start or by … → Check for updates), or null.</summary>
+    public UpdateChecker.Release? AvailableUpdate { get; private set; }
+
+    /// <summary>The windows show it on their … button.</summary>
+    public event Action? UpdateChanged;
+
+    public void SetUpdate(UpdateChecker.Release? release)
+    {
+        AvailableUpdate = release != null && release.Version > UpdateChecker.Current ? release : null;
+        UpdateChanged?.Invoke();
+    }
+
+    /// <summary>A few seconds after the start (the servers come first): quietly, a notification only when there is a newer one.</summary>
+    private async Task CheckUpdatesAtStartAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        var r = await UpdateChecker.CheckAsync();
+        if (r.Error != null)
+        {
+            Log.Write("update check: " + r.Error);
+            return;
+        }
+        if (!r.IsNewer) return;
+        SetUpdate(r.Latest);
+        Log.Write($"update check: {r.Latest!.Tag} is out");
+        Main.ShowToast(null, $"BetterConsole {r.Latest.Version.ToString(3)} is available: … → Download.", BetterConsole.Sdk.NotifyKind.Info, TimeSpan.FromSeconds(12));
+    }
 
     private async Task StartupAsync()
     {

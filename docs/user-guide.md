@@ -11,8 +11,8 @@
   in the list behind the arrow next to them; Ctrl+1…9 and Ctrl+Tab switch tabs too.
 - **Server controls** on the right: the state (*Running 1h 12m*; hover it for the CPU, the schedule
   and Always run), Start / Stop / Restart, the `…` menu (kill a hung server, CPU affinity and
-  priority, the start / stop journal, open the server folder, documentation), the theme menu and
-  Settings.
+  priority, the start / stop journal, open the server folder, documentation, check for updates), the
+  theme menu and Settings.
 - **Status bar** at the bottom.
 - **Toasts** in the bottom right corner for things that need your attention (a crash, a finished
   action). With several servers, a toast of a server you are not looking at starts with its name.
@@ -171,6 +171,9 @@ selected the right-click opens its Copy menu instead.
 
 Server addons and plugins can add numbers, charts and sections of their own here (money in the economy,
 a job queue…) and hide built-in parts they make redundant: [lua-api.md](lua-api.md#the-statistics-tab).
+An addon can also explain lag spikes in their rows, and bring a profiler of its own: then the profiler
+card has its name and an *addon* mark, and *Start profiling* and *Detailed capture* are that addon's
+([lua-api.md](lua-api.md#a-profiler-of-your-own)).
 
 ### Lag spikes
 
@@ -212,6 +215,22 @@ the *Defined in* path) to open that file at that line.
 It works next to other profilers (gProfiler and the like): BetterConsole does not wrap a hook twice
 when another profiler has wrapped its wrapper, and names timers after the function inside such
 wrappers.
+
+## Tabs of addons
+
+Server addons add tabs of their own ([lua-api.md](lua-api.md)): numbers, text, tables, logs, charts,
+buttons and **settings forms**. A form lists console variables of the addon (and values of its own): the
+text on the left with its help under it, a switch, a number, a text box or a list on the right.
+Switches and lists apply at once, numbers and texts on Enter or when you leave the box (Esc puts the
+value back); an out-of-range number is refused with a red note. A dot marks a value that is not the
+default, the arrow next to it resets it. A change of a variable is a console command of the server: it
+appears in the console and in the command history (↑) like one you typed, and a change made in the
+console, by rcon or by another addon shows in the form within a second. Protected variables such as
+`sv_password` show as hidden; a variable of a part of the addon that is not installed is greyed out.
+
+Tables of addons are updated in place, so they keep their scroll position and selection; click a
+header to sort (numbers by their value), and the order holds still while the pointer is over the table.
+Buttons can ask for values first (a dialog like the player menu's).
 
 ## Opening Lua files
 
@@ -329,6 +348,13 @@ Windows draws everything in software, so it helps most there. Only the look chan
 works as before. The theme button is hidden while it is on.
 
 ![Compact mode](images/compact.png)
+
+## Updates
+
+A few seconds after it starts BetterConsole asks GitHub for its latest release (api.github.com; nothing
+else is sent, nothing is downloaded or installed). When a newer one is out, a toast says so and the `…`
+button gets a dot; *… → Download BetterConsole x.y.z* opens its release page with the downloads and what
+is new. *… → Check for updates* asks at any time. Switch the check at start off in *Settings → Updates*.
 
 ## Keyboard shortcuts
 

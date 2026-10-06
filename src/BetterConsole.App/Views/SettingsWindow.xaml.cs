@@ -74,6 +74,9 @@ public partial class SettingsWindow : Window
         MergeSimilar.IsChecked = s.MergeSimilarErrors;
         MaxErrors.Text = s.MaxErrorsPerList.ToString();
         ShowAvatars.IsChecked = s.ShowAvatars;
+        CheckForUpdates.IsChecked = s.CheckForUpdates;
+        UpdatesHelp.Text = $"Asks GitHub (api.github.com) for the latest release of BetterConsole; nothing else is sent, nothing is downloaded or installed. " +
+                           $"A newer one is offered in the … menu with a link to its page. This is {UpdateChecker.Current.ToString(3)}; … → Check for updates asks at any time.";
 
         EditorLauncher.Refresh();
         Editor.Items.Add(new ComboBoxItem { Content = $"Automatic ({EditorLauncher.Auto.Name})", Tag = "auto" });
@@ -471,6 +474,7 @@ public partial class SettingsWindow : Window
         s.MergeSimilarErrors = MergeSimilar.IsChecked == true;
         s.MaxErrorsPerList = ParseInt(MaxErrors.Text, 500, 50, 10000);
         s.ShowAvatars = ShowAvatars.IsChecked == true;
+        s.CheckForUpdates = CheckForUpdates.IsChecked == true;
         s.Editor = (Editor.SelectedItem as ComboBoxItem)?.Tag as string ?? "auto";
         s.EditorCommand = EditorCommand.Text.Trim();
         s.Theme = Theme.SelectedItem as string ?? s.Theme;

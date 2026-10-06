@@ -38,10 +38,13 @@ public partial class StatsView : UserControl
         SetupProfileGrid(EntsGrid, nameof(EntityClassRow.Count));
         s.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(StatsVm.Profiling) or nameof(StatsVm.ProfilingInfo) or nameof(StatsVm.HasProfile)) UpdateProfiler();
+            if (e.PropertyName is nameof(StatsVm.Profiling) or nameof(StatsVm.ProfilingInfo) or nameof(StatsVm.HasProfile)
+                or nameof(StatsVm.ProviderName) or nameof(StatsVm.ProviderInfo)) UpdateProfiler();
             if (e.PropertyName is nameof(StatsVm.TickRate)) { UpdateBudget(); UpdateCapture(); }
-            if (e.PropertyName is nameof(StatsVm.Capture)) UpdateCapture();
+            if (e.PropertyName is nameof(StatsVm.Capture) or nameof(StatsVm.ProviderName) or nameof(StatsVm.ProviderCapture) or nameof(StatsVm.ProviderVprof)) UpdateCapture();
         };
+        s.ColumnsChanged += UpdateColumns;
+        UpdateColumns();
         void UpdateNoSpikes() => NoSpikes.Visibility = s.Spikes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         s.Spikes.CollectionChanged += (_, _) => UpdateNoSpikes();
         UpdateNoSpikes();
@@ -387,12 +390,58 @@ public partial class StatsView : UserControl
         // The last results stay after stopping, until the next start.
         bool show = on || s.HasProfile;
         ProfTables.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ProfExtras.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         ProfLabel.Text = on ? "Stop profiling" : "Start profiling";
-        ProfIcon.Text = on ? "" : "";
+        ProfIcon.Text = on ? "\uE71A" : "\uE768";
         ProfButton.SetResourceReference(StyleProperty, on ? "Btn.Danger" : "Btn.Primary");
-        ProfInfo.Text = show && !string.IsNullOrEmpty(s.ProfilingInfo)
-            ? s.ProfilingInfo
+        // Whose profiler it is: an addon's, with its own description.
+        ProfTitle.Text = s.ProviderName ?? "Lua profiler";
+        ProfAddon.Visibility = s.ProviderName != null ? Visibility.Visible : Visibility.Collapsed;
+        var about = s.ProviderName != null
+            ? s.ProviderInfo ?? $"{s.ProviderName} comes from a server addon. The built-in profiler is off while it is set."
             : "Times every hook, timer and net message handler and counts outgoing net messages and entities. Costs 1-3 µs per call while it runs, so switch it off when done.";
+        ProfInfo.Text = show && !string.IsNullOrEmpty(s.ProfilingInfo) ? s.ProfilingInfo : about;
+    }
+
+    /// <summary>Columns no row has a number for are left out (the max of a profiler that does not measure it, KB/s of the built-in one).</summary>
+    private void UpdateColumns()
+    {
+        var s = _vm.Stats;
+        foreach (var (grid, table) in new[] { (HooksGrid, s.Hooks), (TimersGrid, s.Timers), (NetInGrid, s.NetReceive), (NetOutGrid, s.NetSend) })
+        {
+            foreach (var col in grid.Columns)
+            {
+                var field = col.SortMemberPath switch
+                {
+                    nameof(ProfileRow.MsPerSec) => "ms",
+                    nameof(ProfileRow.CallsPerSec) => "n",
+                    nameof(ProfileRow.MaxMs) => "max",
+                    nameof(ProfileRow.BytesPerSec) => "b",
+                    nameof(ProfileRow.KbPerSec) => "kb",
+                    _ => null,
+                };
+                if (field == null) continue;
+                // Before the first numbers: the columns of the built-in profiler.
+                bool has = s.HasField(table, field) || field != "kb" && !table.Any();
+                col.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    /// <summary>For the UI script runner: the profiler card's title and the columns of its tables that are shown.</summary>
+    public IEnumerable<string> ScriptProfiler()
+    {
+        yield return $"title '{ProfTitle.Text}' addon pill {ProfAddon.Visibility} info '{ProfInfo.Text}'";
+        foreach (var g in new[] { HooksGrid, TimersGrid, NetInGrid, NetOutGrid })
+            yield return g.Name + ": " + string.Join(", ", g.Columns.Where(c => c.Visibility == Visibility.Visible).Select(c => c.Header));
+        yield return "spikes: " + SpikesInfo.Text;
+    }
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<DataGrid, object> _extraBound = new();
+
+    private void OnExtraTableLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is DataGrid grid && grid.DataContext is TableWidgetVm vm && _extraBound.TryAdd(grid, vm)) LiveTable.Attach(grid, vm);
     }
 
     private void OnProfile(object sender, RoutedEventArgs e) => _vm.SetProfiling(!_vm.Stats.Profiling);
@@ -414,6 +463,15 @@ public partial class StatsView : UserControl
         double tick = double.IsNaN(s.TickRate) || s.TickRate <= 0 ? 33 : s.TickRate;
         double limit = Math.Max(3000 / tick, 50);
         var longer = 3000 / tick >= 50 ? $"Frames longer than {limit:F0} ms (3 ticks)" : $"Frames longer than {limit:F0} ms";
+        if (s.ProviderName != null)
+        {
+            // An addon's profiler has the capture.
+            var engine = s.ProviderVprof ? " and the engine's profile (vprof)" : "";
+            SpikesInfo.Text = s.Capture
+                ? $"{longer}. Detailed capture by {s.ProviderName} is on" + (s.ProviderCapture ? $": each long frame gets what it measured{engine}." : $"{(engine.Length > 0 ? ": the engine's profile (vprof)" : "")}.")
+                : $"{longer}, newest first, with what they were made of. Detailed capture is done by {s.ProviderName} (a server addon). Double-click a Lua name to open its file.";
+            return;
+        }
         SpikesInfo.Text = s.Capture
             ? longer + ". Detailed capture is on: each long frame names its slowest hooks, timers and net messages (Lua) and what the engine did in it (vprof; the engine reports one long frame a second at most). It costs 1-3 µs per Lua call: switch it off when done."
             : longer + ", newest first, with what they were made of: CPU time, Lua collector, physics, entities, players joining, the slowest timer. Detailed capture names the hooks, timers and net messages of each long frame and adds the engine's profile (vprof). Double-click a Lua name to open its file.";

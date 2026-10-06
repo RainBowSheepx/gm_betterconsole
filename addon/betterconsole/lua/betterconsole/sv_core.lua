@@ -56,6 +56,8 @@ local function Hello()
 		tickrate = math.floor(1 / engine.TickInterval() + 0.5),
 		os = system.IsWindows() and "windows" or system.IsLinux() and "linux" or "other",
 		errors = true,
+		-- An addon's profiler (BetterConsole.SetProfiler): before the app asks for the capture.
+		profiler = BC.ProfilerProvider and BC.ProfilerProvider() or nil,
 	})
 end
 
@@ -64,6 +66,8 @@ local nextCheck = 0
 
 local function OnConnected()
 	BC.Connected = true
+	-- The app says again which tab it shows.
+	if BC.HideAllTabs then BC.HideAllTabs() end
 	Hello()
 	if BC.OnConnected then BC.OnConnected() end
 	BC.ResendRegistry()
@@ -78,7 +82,15 @@ local function Think()
 		local c = IsConnected()
 		if c ~= wasConnected then
 			wasConnected = c
-			if c then OnConnected() else BC.Connected = false end
+			if c then
+				OnConnected()
+			else
+				BC.Connected = false
+				if BC.HideAllTabs then BC.HideAllTabs() end
+				-- Nobody looks at the numbers any more; a reconnect starts with both off (the app asks again).
+				if BC.IsProfiling and BC.IsProfiling() then BC.ProfilerRequest("prof", false) end
+				if BC.IsCapturing and BC.IsCapturing() then BC.ProfilerRequest("capture", false) end
+			end
 		end
 	end
 	if not wasConnected then return end
@@ -90,12 +102,27 @@ end
 
 BC.On("action", BC.HandleAction)
 BC.On("paction", BC.HandlePlayerAction)
+BC.On("form", BC.HandleForm)
+BC.On("tabshow", BC.HandleTabShow)
+-- The profiler and the detailed capture: the built-in ones or an addon's (BetterConsole.SetProfiler).
+BC.On("prof", function(msg) BC.ProfilerRequest("prof", msg.on == true) end)
+BC.On("capture", function(msg) BC.ProfilerRequest("capture", msg.on == true) end)
 BC.On("custom", function(msg) hook.Run("BetterConsoleMessage", msg.type, msg.data) end)
 local polling = false
 BC.On("exec", function(msg)
 	-- Inside betterconsole_poll the engine is already executing commands: only queue it then.
 	if isstring(msg.cmd) then N.ServerCommand(msg.cmd, not polling) end
 end)
+
+-- A command of BetterConsole's own (a form's variable): true when it ran at once.
+function BC.RunCommand(cmd)
+	local ok = N.ServerCommand(cmd, not polling)
+	if not ok then
+		game.ConsoleCommand(cmd .. "\n")
+		return false
+	end
+	return not polling
+end
 
 concommand.Add("betterconsole_poll", function(ply)
 	if IsValid(ply) then return end

@@ -287,7 +287,14 @@
                             </StackPanel>
                         </Button>
                         <StackPanel>
-                            <TextBlock Text="Lua profiler" Style="{StaticResource Text.Title}" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock x:Name="ProfTitle" Text="Lua profiler" Style="{StaticResource Text.Title}" />
+                                <!-- an addon's profiler has the card (BetterConsole.SetProfiler) -->
+                                <Border x:Name="ProfAddon" Style="{StaticResource Pill}" Margin="8,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"
+                                        ToolTip="This profiler comes from a server addon (BetterConsole.SetProfiler). The built-in one installs nothing while it is set.">
+                                    <TextBlock Text="addon" FontSize="11" Foreground="{DynamicResource Brush.TextSecondary}" />
+                                </Border>
+                            </StackPanel>
                             <TextBlock x:Name="ProfInfo" Style="{StaticResource Text.Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,12,0"
                                        Text="Times every hook, timer and net message handler and counts outgoing net messages and entities. Costs 1-3 µs per call while it runs, so switch it off when done." />
                         </StackPanel>
@@ -311,6 +318,7 @@
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="70" />
                                     <DataGridTextColumn Header="calls/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="70" />
                                     <DataGridTextColumn Header="max ms" Binding="{Binding MaxText}" SortMemberPath="MaxMs" Width="70" />
+                                    <DataGridTextColumn Header="KB/s" Binding="{Binding KbText}" SortMemberPath="KbPerSec" Width="70" />
                                     <DataGridTextColumn Header="Defined in" Binding="{Binding Source}" Width="2*" />
                                 </DataGrid.Columns>
                             </DataGrid>
@@ -323,6 +331,7 @@
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="65" />
                                     <DataGridTextColumn Header="calls/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="65" />
                                     <DataGridTextColumn Header="max ms" Binding="{Binding MaxText}" SortMemberPath="MaxMs" Width="65" />
+                                    <DataGridTextColumn Header="KB/s" Binding="{Binding KbText}" SortMemberPath="KbPerSec" Width="65" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
@@ -343,6 +352,7 @@
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="60" />
                                     <DataGridTextColumn Header="msg/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="60" />
                                     <DataGridTextColumn Header="data" Binding="{Binding BytesText}" SortMemberPath="BytesPerSec" Width="85" />
+                                    <DataGridTextColumn Header="KB/s" Binding="{Binding KbText}" SortMemberPath="KbPerSec" Width="60" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
@@ -357,6 +367,17 @@
                             </DataGrid>
                         </StackPanel>
                     </Grid>
+                    <!-- more tables of an addon's profiler -->
+                    <ItemsControl x:Name="ProfExtras" ItemsSource="{Binding Stats.ExtraTables}" Margin="0,12,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TableWidgetVm}">
+                                <StackPanel Margin="0,0,0,12">
+                                    <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Section}" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
+                                    <DataGrid ItemsSource="{Binding Rows}" Style="{StaticResource ProfGrid}" Loaded="OnExtraTableLoaded" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
             </Border>
         </StackPanel>

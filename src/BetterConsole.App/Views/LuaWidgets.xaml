@@ -79,7 +79,8 @@
         <Border Style="{StaticResource WidgetCard}">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,8" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
-                <DataGrid ItemsSource="{Binding Rows}" MaxHeight="420" Loaded="OnTableLoaded" RowHeight="{DynamicResource Size.Row}" FontSize="12.5" />
+                <DataGrid ItemsSource="{Binding Rows}" MaxHeight="420" Loaded="OnTableLoaded" RowHeight="{DynamicResource Size.Row}" FontSize="12.5"
+                          VirtualizingPanel.IsVirtualizing="True" c:ScrollChain.IsEnabled="True" />
             </DockPanel>
         </Border>
     </DataTemplate>
@@ -138,6 +139,16 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- settings: a row per field (Controls/FormView.cs) -->
+    <DataTemplate DataType="{x:Type vm:FormWidgetVm}">
+        <Border Style="{StaticResource WidgetCard}">
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource Text.Title}" Margin="0,0,0,10" Visibility="{Binding Title, Converter={StaticResource NullToCollapsed}}" />
+                <c:FormView />
             </StackPanel>
         </Border>
     </DataTemplate>

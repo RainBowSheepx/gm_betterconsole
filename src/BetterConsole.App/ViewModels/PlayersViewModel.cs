@@ -313,33 +313,50 @@ public sealed class PlayerActionDef
 
     public static string Clean(string s) => s.Replace("\"", "'").Replace(";", ",").Replace("\r", " ").Replace("\n", " ").Trim();
 
+    /// <summary>
+    /// The fields of a dialog (player menu items, buttons of addon tabs): an array of { id, text, type, default,
+    /// choices, editable }. One field per id (a second one would have no value of its own).
+    /// </summary>
+    public static List<PlayerActionField> ParseFields(JsonElement owner)
+    {
+        var fields = new List<PlayerActionField>();
+        if (owner.ValueKind != JsonValueKind.Object || !owner.TryGetProperty("fields", out var fs) || fs.ValueKind is not (JsonValueKind.Array or JsonValueKind.Object)) return fields;
+        foreach (var f in LuaJson.Items(fs))
+        {
+            if (f.ValueKind != JsonValueKind.Object || StatsVm.Str(f, "id") is not { Length: > 0 } fid || fields.Any(x => x.Id == fid)) continue;
+            fields.Add(new PlayerActionField(fid, StatsVm.Str(f, "text") ?? fid, f.TryGetProperty("default", out var d) ? LuaJson.Plain(d) : "",
+                StatsVm.Str(f, "type") == "number", LuaJson.Choices(f, "choices"), LuaJson.Flag(f, "editable", false)));
+        }
+        return fields;
+    }
+
+    /// <summary>
+    /// The values of a dialog as Lua gets them: numbers for number fields, else the text. Null when they are all
+    /// good, else what is wrong ("Minutes: a number is needed."). <paramref name="values"/> gets the numbers
+    /// written plainly ("1.5"), for commands.
+    /// </summary>
+    public static string? TypedValues(IReadOnlyList<PlayerActionField> fields, Dictionary<string, string> values, out Dictionary<string, object> typed)
+    {
+        typed = new Dictionary<string, object>();
+        foreach (var f in fields)
+        {
+            var v = values.GetValueOrDefault(f.Id, f.Default);
+            if (f.Number)
+            {
+                // "NaN", "Infinity", "1e400" parse as numbers, but are none (and JSON cannot carry them).
+                if (!LuaJson.TryNumber(v, out var n)) return $"{f.Label}: a number is needed.";
+                v = n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                typed[f.Id] = n;
+            }
+            else typed[f.Id] = v;
+            values[f.Id] = v;
+        }
+        return null;
+    }
+
     /// <summary>The "pa" message of the addon.</summary>
     public static PlayerActionDef FromLua(JsonElement m)
     {
-        var fields = new List<PlayerActionField>();
-        if (m.TryGetProperty("fields", out var fs) && fs.ValueKind is JsonValueKind.Array or JsonValueKind.Object)
-        {
-            // An array of fields (Lua's TableToJSON makes an object of a table with holes).
-            var items = fs.ValueKind == JsonValueKind.Array ? fs.EnumerateArray().ToList() : fs.EnumerateObject().OrderBy(p => int.TryParse(p.Name, out var n) ? n : int.MaxValue).Select(p => p.Value).ToList();
-            foreach (var f in items)
-            {
-                // One field per id (a second one would have no value of its own).
-                if (f.ValueKind != JsonValueKind.Object || StatsVm.Str(f, "id") is not { Length: > 0 } fid || fields.Any(x => x.Id == fid)) continue;
-                List<(string, string)>? choices = null;
-                if (f.TryGetProperty("choices", out var cs) && cs.ValueKind == JsonValueKind.Array)
-                {
-                    choices = new();
-                    foreach (var c in cs.EnumerateArray())
-                    {
-                        if (c.ValueKind == JsonValueKind.Array && c.GetArrayLength() >= 2) choices.Add((Plain(c[0]), Plain(c[1])));
-                        else if (c.ValueKind == JsonValueKind.Object) choices.Add((Plain(c.TryGetProperty("text", out var t) ? t : default), Plain(c.TryGetProperty("value", out var v) ? v : default)));
-                        else choices.Add((Plain(c), Plain(c)));
-                    }
-                }
-                fields.Add(new PlayerActionField(fid, StatsVm.Str(f, "text") ?? fid, f.TryGetProperty("default", out var d) ? Plain(d) : "",
-                    StatsVm.Str(f, "type") == "number", choices, f.TryGetProperty("editable", out var e) && e.ValueKind == JsonValueKind.True));
-            }
-        }
         var icon = StatsVm.Str(m, "icon");
         var order = StatsVm.Num(m, "order");
         return new PlayerActionDef
@@ -350,24 +367,12 @@ public sealed class PlayerActionDef
             Order = double.IsNaN(order) ? 300 : (int)Math.Clamp(order, -100000, 100000),
             Command = StatsVm.Str(m, "command"),
             Confirm = StatsVm.Str(m, "confirm"),
-            Danger = Flag(m, "danger", false),
-            Bots = Flag(m, "bots", true),
-            Multi = Flag(m, "multi", true),
-            Filtered = Flag(m, "filtered", false),
-            LuaRun = Flag(m, "run", false),
-            Fields = fields,
+            Danger = LuaJson.Flag(m, "danger", false),
+            Bots = LuaJson.Flag(m, "bots", true),
+            Multi = LuaJson.Flag(m, "multi", true),
+            Filtered = LuaJson.Flag(m, "filtered", false),
+            LuaRun = LuaJson.Flag(m, "run", false),
+            Fields = ParseFields(m),
         };
     }
-
-    private static bool Flag(JsonElement m, string name, bool fallback) =>
-        m.TryGetProperty(name, out var v) ? v.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => fallback } : fallback;
-
-    private static string Plain(JsonElement e) => e.ValueKind switch
-    {
-        JsonValueKind.String => e.GetString() ?? "",
-        JsonValueKind.Number => e.GetDouble().ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
-        JsonValueKind.True => "true",
-        JsonValueKind.False => "false",
-        _ => "",
-    };
 }

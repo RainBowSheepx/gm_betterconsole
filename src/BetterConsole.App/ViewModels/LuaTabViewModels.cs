@@ -38,11 +38,15 @@ public sealed partial class LuaTabVm : ObservableObject
     }
     public ObservableCollection<LuaWidgetVm> Widgets { get; } = new();
 
-    /// <summary>Sends an action (button press) back to the server.</summary>
-    public Action<string, string, string>? ActionSink { get; set; }
+    /// <summary>Sends a request to the companion (a button pressed, a form field changed).</summary>
+    public Action<string, object>? Send { get; set; }
+
+    private static readonly JsonElement NoOptions = JsonDocument.Parse("{}").RootElement.Clone();
 
     public void Define(string id, string kind, JsonElement opts)
     {
+        // A widget made without options: Lua sends its empty table as [].
+        if (opts.ValueKind != JsonValueKind.Object) opts = NoOptions;
         if (_widgets.TryGetValue(id, out var existing))
         {
             if (existing.Kind == kind)
@@ -61,6 +65,7 @@ public sealed partial class LuaTabVm : ObservableObject
             "log" => new LogWidgetVm(),
             "chart" => new ChartWidgetVm(),
             "buttons" => new ButtonsWidgetVm(),
+            "form" => new FormWidgetVm(),
             _ => new TextWidgetVm { Text = $"(unknown widget type \"{kind}\")" },
         };
         w.Id = id;
@@ -256,42 +261,7 @@ public sealed class KeyValueWidgetVm : LuaWidgetVm
     }
 }
 
-public sealed partial class TableWidgetVm : LuaWidgetVm
-{
-    [ObservableProperty] private string[] columns = [];
-    public ObservableCollection<string[]> Rows { get; } = new();
-
-    public override void Configure(JsonElement opts)
-    {
-        base.Configure(opts);
-        if (opts.TryGetProperty("columns", out var cols) && cols.ValueKind == JsonValueKind.Array)
-            Columns = cols.EnumerateArray().Select(Text).ToArray();
-    }
-
-    public override void Apply(string op, JsonElement data)
-    {
-        if (op == "clear") { Rows.Clear(); return; }
-        if (op != "set" || data.ValueKind != JsonValueKind.Array) return;
-        Rows.Clear();
-        int n = Math.Max(Columns.Length, 1);
-        foreach (var row in data.EnumerateArray().Take(2000))
-        {
-            var cells = new string[n];
-            if (row.ValueKind == JsonValueKind.Array)
-            {
-                int i = 0;
-                foreach (var cell in row.EnumerateArray())
-                {
-                    if (i >= n) break;
-                    cells[i++] = Text(cell);
-                }
-            }
-            else cells[0] = Text(row);
-            for (int i = 0; i < n; i++) cells[i] ??= "";
-            Rows.Add(cells);
-        }
-    }
-}
+// TableWidgetVm: LuaTable.cs
 
 public sealed record LogLine(DateTime Time, string Text, Brush? Color)
 {
@@ -416,7 +386,8 @@ public sealed partial class ChartWidgetVm : LuaWidgetVm, BetterConsole.Sdk.IStat
     }
 }
 
-public sealed record LuaButton(string Id, string Text, string Style, string? Confirm);
+/// <param name="Fields">A dialog before it is sent (text, numbers, choices), as for the items of the player menu.</param>
+public sealed record LuaButton(string Id, string Text, string Style, string? Confirm, IReadOnlyList<PlayerActionField> Fields);
 
 public sealed class ButtonsWidgetVm : LuaWidgetVm
 {
@@ -425,7 +396,7 @@ public sealed class ButtonsWidgetVm : LuaWidgetVm
     public override void Configure(JsonElement opts)
     {
         base.Configure(opts);
-        if (opts.TryGetProperty("buttons", out var b)) Load(b);
+        if (opts.ValueKind == JsonValueKind.Object && opts.TryGetProperty("buttons", out var b)) Load(b);
     }
 
     public override void Apply(string op, JsonElement data)
@@ -436,17 +407,23 @@ public sealed class ButtonsWidgetVm : LuaWidgetVm
 
     private void Load(JsonElement list)
     {
-        if (list.ValueKind != JsonValueKind.Array) return;
+        if (list.ValueKind is not (JsonValueKind.Array or JsonValueKind.Object)) return;
         Buttons.Clear();
-        foreach (var b in list.EnumerateArray())
+        foreach (var b in LuaJson.Items(list))
         {
             var id = StatsVm.Str(b, "id");
             if (id == null) continue;
-            Buttons.Add(new LuaButton(id, StatsVm.Str(b, "text") ?? id, StatsVm.Str(b, "style") ?? "default", StatsVm.Str(b, "confirm")));
+            Buttons.Add(new LuaButton(id, StatsVm.Str(b, "text") ?? id, StatsVm.Str(b, "style") ?? "default", StatsVm.Str(b, "confirm"), PlayerActionDef.ParseFields(b)));
         }
     }
 
-    public void Press(LuaButton b) => Tab?.ActionSink?.Invoke(Tab.Id, Id, b.Id);
+    /// <summary>Sends the press; <paramref name="values"/>: the dialog's values by field id (numbers as numbers).</summary>
+    public void Press(LuaButton b, IReadOnlyDictionary<string, object>? values = null)
+    {
+        if (Tab?.Send is not { } send) return;
+        if (values != null) send("action", new { tab = Tab.Id, widget = Id, id = b.Id, values });
+        else send("action", new { tab = Tab.Id, widget = Id, id = b.Id });
+    }
 }
 
 /// <summary>A text item of the status bar added by an addon or a plugin.</summary>

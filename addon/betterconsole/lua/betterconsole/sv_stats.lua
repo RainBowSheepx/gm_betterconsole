@@ -10,7 +10,10 @@ A frame longer than three ticks (a lag spike) is reported with what it was made 
 the Lua collector, entity and player changes, the slowest timer, and with the detailed capture on
 (sv_profiler.lua) the slowest hooks, timers and net messages of that frame.
 
-Cost: two hooks with a few arithmetic operations and C calls each; the summary once a second.
+Cost: two hooks with a few arithmetic operations and C calls each (about a microsecond a frame); the
+summary once a second. Nothing per frame grows with the number of entities: created and removed ones are
+counted by the OnEntityCreated / EntityRemoved hooks instead of asking the engine for the count (that walks
+the entity list: ~50 us a frame on a server with 2000 entities).
 ]]
 local BC = BetterConsole
 local N = BC.Native
@@ -30,18 +33,20 @@ local nextPlayers = 0
 local netOk = nil       -- nil: not checked yet, true: addresses matched, false: disabled
 
 -- What a long frame is made of, measured on every frame (a few C calls): the Lua heap at its start (a
--- drop: the collector ran in it), the entity count, the physics simulation, players who joined in it.
-local collect, ents_GetCount = collectgarbage, ents.GetCount
+-- drop: the collector ran in it), entities created and removed in it, the physics simulation, players
+-- who joined in it.
+local collect = collectgarbage
 local SimTime = physenv and physenv.GetLastSimulationTime
-local lastHeap, lastEnts
+local lastHeap
+local entDelta = 0      -- entities created minus removed since the last frame
 local joined
 
-local function Spike(p, d, heap, entCount, now)
+local function Spike(p, d, heap, ents, now)
 	local rec = { ms = p * 1000, busy = d, time = os.time(), st = now }
 	if SimTime then rec.phys = SimTime() * 1000 end
 	rec.heap = heap / 1024
 	if lastHeap and lastHeap - heap > 4 * 1024 then rec.gc = (lastHeap - heap) / 1024 end
-	if lastEnts and entCount ~= lastEnts then rec.ents = entCount - lastEnts end
+	if ents ~= 0 then rec.ents = ents end
 	if joined then rec.joined = joined end
 	if now - BC.StartTime < 10 then rec.start = true end
 	local T = BC.Timers
@@ -57,7 +62,8 @@ end
 local function OnThink()
 	local now = SysTime()
 	local b = ThreadTime()
-	local heap, entCount = collect("count"), ents_GetCount()
+	local heap, ents = collect("count"), entDelta
+	entDelta = 0
 	if lastT then
 		local p = now - lastT
 		frames = frames + 1
@@ -73,12 +79,12 @@ local function OnThink()
 		end
 		-- A frame that took longer than three ticks is a visible hitch for players.
 		if p > tickInterval * 3 and p > 0.05 and #spikes < 20 then
-			local ok, rec = pcall(Spike, p, d, heap, entCount, now)
+			local ok, rec = pcall(Spike, p, d, heap, ents, now)
 			spikes[#spikes + 1] = ok and rec or { ms = p * 1000, busy = d, time = os.time(), st = now }
 		end
 	end
 	-- The next frame starts here.
-	lastT, lastBusy, lastHeap, lastEnts, joined = now, b, heap, entCount, nil
+	lastT, lastBusy, lastHeap, joined = now, b, heap, nil
 	local T = BC.Timers
 	if T then T.slow, T.slowFn, T.slowKey = 0, nil, nil end
 	local P = BC.Profiler
@@ -116,6 +122,8 @@ function BC.Summary(now)
 	local wall = now - lastSummary
 	lastSummary = now
 	if wall <= 0 then return end
+	-- Addons add what they know about each long frame (BetterConsole.Stats:OnSpike).
+	if #spikes > 0 and BC.Connected and BC.RunSpikeFns then BC.RunSpikeFns(spikes) end
 
 	local mean = frames > 0 and sum / frames or 0
 	local var = frames > 1 and math_max(sumSq / frames - mean * mean, 0) or 0
@@ -176,6 +184,8 @@ end
 function BC.StartStats()
 	hook.Add("Think", "BetterConsole.Frame", function() OnThink() end)
 	hook.Add("Tick", "BetterConsole.Tick", function() OnTick() end)
+	hook.Add("OnEntityCreated", "BetterConsole.Ents", function() entDelta = entDelta + 1 end)
+	hook.Add("EntityRemoved", "BetterConsole.Ents", function() entDelta = entDelta - 1 end)
 end
 
 -- While the server hibernates there are no frames: betterconsole_poll calls this for the numbers that

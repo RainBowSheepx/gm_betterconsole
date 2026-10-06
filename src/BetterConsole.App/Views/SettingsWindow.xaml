@@ -259,6 +259,11 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <TextBlock Style="{StaticResource Help}" Text="Plugin changes apply after BetterConsole restarts. With several servers each server has its own instance of a plugin. How to write one: docs/plugins.md." />
+
+                <!-- ====================================================== updates -->
+                <TextBlock Text="Updates" Style="{StaticResource Section}" />
+                <CheckBox x:Name="CheckForUpdates" Content="Check for a new version when BetterConsole starts" />
+                <TextBlock x:Name="UpdatesHelp" Style="{StaticResource Help}" Margin="26,-4,0,10" />
             </StackPanel>
         </ScrollViewer>
 

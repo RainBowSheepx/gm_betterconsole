@@ -642,19 +642,12 @@ function P.StopCapture()
 	if not P.active then Uninstall() end
 end
 
-BC.On("prof", function(msg)
-	if msg.on then P.Start() else P.Stop() end
-	BC.Emit({ t = "prof_state", on = P.on })
-end)
+-- The app's requests ("prof", "capture") go through BC.ProfilerRequest (sv_api.lua): to these functions, or to an
+-- addon's profiler while one is set (then nothing here is installed).
 
-BC.On("capture", function(msg)
-	if msg.on then P.StartCapture() else P.StopCapture() end
-	BC.Emit({ t = "capture_state", on = P.capture })
-end)
-
--- The app went away: nobody looks at the numbers any more.
+-- The app went away: nobody looks at the numbers any more (this profiler's or an addon's).
 timer.Create("BetterConsole.ProfilerWatch", 2, 0, function()
 	if BC.Connected then return end
-	if P.on then P.Stop() end
-	if P.capture then P.StopCapture() end
+	if BC.IsProfiling() or P.on then BC.ProfilerRequest("prof", false) end
+	if BC.IsCapturing() or P.capture then BC.ProfilerRequest("capture", false) end
 end)

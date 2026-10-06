@@ -33,6 +33,10 @@ namespace BetterConsole.App.Services;
 /// runaction lua:id k=v        an addon item for the selected players
 /// statsparts path.txt         built-in parts of the Statistics tab that are shown
 /// statsmenu [key | right key | click [Group/]name | dump path | shot path | close]  the Statistics tab menu
+/// form widget dump path.txt   the rows of an addon's form on the open tab; form widget set field value
+/// table widget dump path.txt  an addon table as shown; table widget sort n | hold on|off | select n
+/// profdump path.txt           the profiler card (an addon's profiler, columns, its tables)
+/// spikesdump path.txt         the lag spike rows with their chips and parts
 /// shot docs/images/x.png      the window with a drawn title bar, plus open popups
 /// quit
 /// </code>
@@ -406,6 +410,79 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
             case "statsparts":
                 // statsparts path.txt  (the built-in parts of the Statistics tab that are shown)
                 if (Vm.FindTab("stats")?.Content is StatsView stv) File.WriteAllLines(arg, stv.ScriptVisibleParts());
+                break;
+            case "form":
+                // form <widget> dump <path> | form <widget> set <field> <value>   (a form of an addon on the open tab)
+            {
+                var a = arg.Split(' ', 4);
+                var fv = Descendants(window).OfType<Controls.FormView>().FirstOrDefault(f => f.DataContext is FormWidgetVm w && w.Id == a[0]);
+                if (fv == null) break;
+                if (a.Length >= 3 && a[1] == "dump") File.WriteAllLines(a[2], fv.ScriptRows().Append($"width {fv.ActualWidth:F0}"));
+                else if (a.Length >= 4 && a[1] == "set") fv.ScriptSet(a[2], a[3]);
+                await Task.Delay(500);
+                break;
+            }
+            case "table":
+                // table <widget> dump <path> | table <widget> sort <column> | table <widget> hold on|off   (an addon table on the open tab)
+            {
+                var a = arg.Split(' ', 3);
+                var grid = Descendants(window).OfType<System.Windows.Controls.DataGrid>().FirstOrDefault(g => g.DataContext is TableWidgetVm w && w.Id == a[0]);
+                if (grid?.DataContext is not TableWidgetVm tv || a.Length < 3) break;
+                if (a[1] == "dump")
+                    File.WriteAllLines(a[2], tv.Rows.Select(r => r.ToString())
+                        .Prepend($"sort {tv.SortColumn} {(tv.SortDescending ? "desc" : "asc")} key {tv.KeyColumn} links {tv.Links} selected {grid.SelectedIndex} " +
+                                 string.Join(", ", grid.Columns.Select(c => $"{c.Header}:{c.ActualWidth:F0}:{c.SortDirection}"))));
+                else if (a[1] == "sort") tv.SortBy(int.Parse(a[2], CultureInfo.InvariantCulture));
+                else if (a[1] == "hold") tv.Hold = a[2] == "on";
+                else if (a[1] == "select") grid.SelectedIndex = int.Parse(a[2], CultureInfo.InvariantCulture);
+                await Task.Delay(300);
+                break;
+            }
+            case "profdump":
+                // profdump path.txt  (the profiler card: whose it is, the columns shown, the tables of an addon's profiler)
+            {
+                var st = Vm.Stats;
+                var lines = new List<string> { $"provider {st.ProviderName ?? "built-in"} vprof {st.ProviderVprof} capture {st.ProviderCapture} profiling {st.Profiling} capturing {st.Capture} pipelineVprof {Vm.Controller.Pipeline.CaptureVprof}" };
+                if (Vm.FindTab("stats")?.Content is StatsView psv) lines.AddRange(psv.ScriptProfiler());
+                foreach (var t in st.ExtraTables) lines.Add($"extra {t.Id} '{t.Title}' {t.Rows.Count} rows: " + string.Join(" / ", t.Rows.Take(5)));
+                File.WriteAllLines(arg, lines);
+                break;
+            }
+            case "checkupdates":
+                // checkupdates  (… → Check for updates: asks GitHub, as the menu does)
+                await window.CheckForUpdatesAsync();
+                break;
+            case "fakeupdate":
+                // fakeupdate 9.9.9  (as if GitHub had that release: the badge on … and the menu's item)
+                shell.SetUpdate(new UpdateChecker.Release(Version.Parse(arg), "v" + arg, UpdateChecker.ReleasesPage, "v" + arg, DateTimeOffset.Now));
+                await Task.Delay(300);
+                break;
+            case "moremenu":
+                // moremenu dump path.txt | moremenu shot path.png  (opens the … menu)
+            {
+                var more = (System.Windows.Controls.Button)window.FindName("MoreButton");
+                more.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                await Task.Delay(400);
+                var open = window.LastMoreMenu;
+                var a = arg.Split(' ', 2);
+                if (open != null && a.Length == 2)
+                {
+                    if (a[0] == "dump") File.WriteAllLines(a[1], MenuLines(open.Items, "").Prepend("button tooltip: " + more.ToolTip));
+                    else if (a[0] == "shot")
+                    {
+                        using var fs = File.Create(a[1]);
+                        var enc = new PngBitmapEncoder();
+                        enc.Frames.Add(BitmapFrame.Create(Snapshot(open, open.ActualWidth, open.ActualHeight, 1.25)));
+                        enc.Save(fs);
+                    }
+                }
+                if (open != null) open.IsOpen = false;
+                break;
+            }
+            case "spikesdump":
+                // spikesdump path.txt  (the lag spike rows: chips, Lua and engine parts)
+                File.WriteAllLines(arg, Vm.Stats.Spikes.Take(10).Select(r =>
+                    $"{r.TimeText} {r.MsText} causes [{string.Join("; ", r.Causes.Select(c => $"{c.Kind}:{c.Text}"))}] lua [{string.Join("; ", r.Lua.Select(p => $"{p.Text} {p.MsText}"))}] engine [{string.Join("; ", r.Engine.Select(p => $"{p.Text} {p.MsText}"))}]"));
                 break;
             case "quit":
                 window.Close();

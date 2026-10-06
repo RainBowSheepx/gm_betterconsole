@@ -35,6 +35,9 @@ public sealed class AppSettings
     /// <summary>Steam avatars of players (downloaded from steamcommunity.com and cached).</summary>
     public bool ShowAvatars { get; set; } = true;
 
+    /// <summary>Ask GitHub for a newer release when BetterConsole starts (… → Check for updates does it any time).</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
     public string Theme { get; set; } = "Dark";
     /// <summary>
     /// Compact mode: smaller and plainer (no themes, shadows, animations or avatars), for the least CPU, GPU
