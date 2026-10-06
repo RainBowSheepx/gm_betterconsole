@@ -199,6 +199,15 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
             case "log":
                 Log.Write("ui-script: " + arg);
                 break;
+            case "probe-textboxes":
+                // Where the text starts inside each visible text box (padding checks).
+                foreach (var tb in Descendants(window).OfType<System.Windows.Controls.TextBox>().Where(t => t.IsVisible))
+                {
+                    var view = Descendants(tb).FirstOrDefault(d => d.GetType().Name == "TextBoxView") as UIElement;
+                    var at = view?.TranslatePoint(new Point(0, 0), tb);
+                    Log.Write($"ui-script: textbox {tb.Name} padding {tb.Padding} text at {at}");
+                }
+                break;
             // ---- multi-console
             case "server":
                 // server 1  (show the n-th server in the main window)
@@ -285,6 +294,16 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
             if (FindContextMenu(VisualTreeHelper.GetChild(node, i)) is { } found) return found;
         return null;
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject node)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+        {
+            var c = VisualTreeHelper.GetChild(node, i);
+            yield return c;
+            foreach (var d in Descendants(c)) yield return d;
+        }
     }
 
     private static System.Windows.Controls.ScrollViewer? FindScroller(DependencyObject node)

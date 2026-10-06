@@ -105,8 +105,24 @@ public partial class ConsoleView : UserControl
             _timeMargin.InvalidateMeasure();
         };
         Loaded += (_, _) => FocusInput();
-        IsVisibleChanged += (_, e) => { if ((bool)e.NewValue) Dispatcher.BeginInvoke(FocusInput, DispatcherPriority.Input); };
+        IsVisibleChanged += (_, e) =>
+        {
+            if ((bool)e.NewValue) Dispatcher.BeginInvoke(FocusInput, DispatcherPriority.Input);
+            else HideSearchMessage();
+        };
         UpdateCount();
+    }
+
+    // AvalonEdit's "No matches found!" is a tool tip of its own window: it would stay on screen over
+    // another tab, or over another server's window. It is closed when the console goes out of view; the
+    // search itself stays.
+    private static readonly System.Reflection.FieldInfo? SearchMessage =
+        typeof(SearchPanel).GetField("messageView", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+    private void HideSearchMessage()
+    {
+        if (SearchMessage?.GetValue(_search) is ToolTip tip) tip.IsOpen = false;
+        else if (!_search.IsClosed) _search.Close();
     }
 
     public void FocusInput()
@@ -706,12 +722,15 @@ internal sealed class TimestampMargin : AbstractMargin
 
     private void OnLinesChanged(object? sender, EventArgs e) => InvalidateVisual();
 
+    // The font of the margin itself (inherited from the editor). Not the text view's: AvalonEdit
+    // measures its left margins before the text view is connected, which then still reports the default
+    // UI font, and the column came out too narrow for the timestamps. A change of the inherited font
+    // measures the margin again by itself.
     private FormattedText Format(string s)
     {
-        var tv = TextView;
-        var typeface = new Typeface(tv.GetValue(TextBlock.FontFamilyProperty) as FontFamily ?? new FontFamily("Consolas"),
+        var typeface = new Typeface(GetValue(TextBlock.FontFamilyProperty) as FontFamily ?? new FontFamily("Consolas"),
             FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-        double size = (double)tv.GetValue(TextBlock.FontSizeProperty) * 0.92;
+        double size = (double)GetValue(TextBlock.FontSizeProperty) * 0.92;
         return new FormattedText(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, size, _foreground,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
     }
@@ -719,7 +738,7 @@ internal sealed class TimestampMargin : AbstractMargin
     protected override Size MeasureOverride(Size availableSize)
     {
         if (TextView == null) return new Size(0, 0);
-        return new Size(Format("00:00:00").Width + 4, 0);
+        return new Size(Math.Ceiling(Format("00:00:00").Width) + 4, 0);
     }
 
     protected override void OnRender(DrawingContext dc)

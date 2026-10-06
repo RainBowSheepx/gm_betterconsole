@@ -192,7 +192,7 @@
         <Setter Property="CaretBrush" Value="{DynamicResource Brush.Text}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource Brush.Accent}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="Padding" Value="8,7" />
         <Setter Property="MinHeight" Value="30" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -201,7 +201,8 @@
                 <ControlTemplate TargetType="TextBox">
                     <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius}" SnapsToDevicePixels="True">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False"
+                        <!-- No Margin from Padding: TextBox hands its Padding to the content host itself (it was doubled). -->
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
                                       HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                     </Border>

@@ -3,6 +3,15 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.2.1 - 2026-10-06
+
+- Fixed: the console's timestamps could run into the text (no gap after the time, its last digit
+  hidden): the time column was measured with the default UI font instead of the console font.
+- Fixed: text boxes had their inner padding twice, so the text of Find (Ctrl+F) started far from the
+  magnifier, and typed text did not line up with the hints of the filter boxes and the console input.
+  Text boxes are a little more compact now.
+- Fixed: Find's "No matches found!" stayed on screen after switching to another tab or server.
+
 ## v0.2.0 - 2026-10-06
 
 - **Multi-console**: several servers in one BetterConsole (*Settings → Servers*). The logo in the top

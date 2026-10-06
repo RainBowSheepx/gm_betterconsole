@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 # The version comes from the release tag in CI (-DBC_VERSION=1.2.3).
-set(BC_VERSION "0.2.0" CACHE STRING "Module version")
+set(BC_VERSION "0.2.1" CACHE STRING "Module version")
 project(gmsv_betterconsole VERSION ${BC_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
