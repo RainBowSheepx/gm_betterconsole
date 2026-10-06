@@ -165,6 +165,12 @@ public interface IUiHost
     /// <summary>Adds a tab. <paramref name="content"/> is created lazily, the first time the tab is shown.</summary>
     void AddTab(string id, string header, Func<FrameworkElement> content, int order = 1000);
 
+    /// <summary>
+    /// Adds a tab with an icon: a glyph of Segoe Fluent Icons (for example "") or a short text. The
+    /// icon is what the tab shows when the app shows tab icons only.
+    /// </summary>
+    void AddTab(string id, string header, string icon, Func<FrameworkElement> content, int order = 1000);
+
     void RemoveTab(string id);
 
     /// <summary>Adds a text item to the status bar. Change its properties later through the returned handle.</summary>

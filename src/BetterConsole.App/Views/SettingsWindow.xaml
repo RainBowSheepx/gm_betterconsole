@@ -139,6 +139,13 @@
                 <TextBlock Text="Theme" Style="{StaticResource Label}" />
                 <ComboBox x:Name="Theme" Width="240" HorizontalAlignment="Left" SelectionChanged="OnThemePreview" />
                 <TextBlock Style="{StaticResource Help}" Text="Your own themes: JSON files in the themes folder next to BetterConsole.exe (see docs/themes.md)." />
+                <TextBlock Text="Tab titles" Style="{StaticResource Label}" />
+                <ComboBox x:Name="TabTitles" Width="360" HorizontalAlignment="Left">
+                    <ComboBoxItem Content="Show icon and title" Tag="show" />
+                    <ComboBoxItem Content="Icons only" Tag="icons" />
+                    <ComboBoxItem Content="Icons only when the titles do not fit" Tag="auto" />
+                </ComboBox>
+                <TextBlock Style="{StaticResource Help}" Text="With icons only the title is in the tooltip. Also on the right-click menu of the tab bar." />
 
                 <!-- ====================================================== plugins -->
                 <TextBlock Text="Plugins" Style="{StaticResource Section}" />

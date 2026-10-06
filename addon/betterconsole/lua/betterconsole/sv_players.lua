@@ -19,7 +19,7 @@ local loadAcc = setmetatable({}, { __mode = "k" })   -- [ply] = seconds since th
 local cmdStart = setmetatable({}, { __mode = "k" })
 local ticks = 0
 local measuring = false
-local origIncoming
+local origIncoming, ourIncoming
 
 local function HasULX()
 	return istable(ulx) and istable(ULib) and istable(ULib.ucl) and isfunction(ulx.command)
@@ -40,12 +40,17 @@ local function StartLoad()
 		end
 	end, HOOK_MONITOR_LOW)
 	hook.Add("Tick", "BetterConsole.LoadTicks", function() ticks = ticks + 1 end)
-	origIncoming = net.Incoming
-	net.Incoming = function(len, client)
+	-- Still in the chain from an earlier subscription (another addon detoured net.Incoming after us).
+	if ourIncoming then return end
+	local orig = net.Incoming
+	origIncoming = orig
+	ourIncoming = function(len, client)
+		if not measuring then return orig(len, client) end
 		local t0 = SysTime()
-		origIncoming(len, client)
+		orig(len, client)
 		if client then loadAcc[client] = (loadAcc[client] or 0) + (SysTime() - t0) end
 	end
+	net.Incoming = ourIncoming
 end
 
 local function StopLoad()
@@ -54,8 +59,11 @@ local function StopLoad()
 	hook.Remove("StartCommand", "BetterConsole.Load")
 	hook.Remove("FinishMove", "BetterConsole.Load")
 	hook.Remove("Tick", "BetterConsole.LoadTicks")
-	if origIncoming then net.Incoming = origIncoming end
-	origIncoming = nil
+	-- Only when nobody detoured it after us: then ours stays and passes the calls on.
+	if ourIncoming and net.Incoming == ourIncoming then
+		net.Incoming = origIncoming
+		ourIncoming, origIncoming = nil, nil
+	end
 end
 
 local function Groups()

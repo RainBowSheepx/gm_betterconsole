@@ -2,7 +2,7 @@
 BetterConsole public API for other addons (server side).
 
   if BetterConsole then
-      local tab = BetterConsole.AddTab("myaddon", { title = "My addon", order = 50 })
+      local tab = BetterConsole.AddTab("myaddon", { title = "My addon", order = 50, icon = "E7FC" })
       local info = tab:KeyValue("info", { title = "State", span = 6 })
       info:Set({ Version = "1.2", Jobs = 5 })
       local log = tab:Log("log", { title = "Events", max = 300 })
@@ -26,7 +26,7 @@ Hooks:
 BetterConsole = BetterConsole or {}
 local BC = BetterConsole
 
-BC.Version = "0.1.2"
+BC.Version = "0.1.3"
 BC.Registry = BC.Registry or { tabs = {}, order = {}, status = {} }
 local R = BC.Registry
 
@@ -148,7 +148,9 @@ function Tab:Remove()
 	BC.Emit({ t = "tab_rm", id = self.id })
 end
 
---- Adds (or returns the existing) tab. opts: title, order (lower = more to the left; built-in tabs are 0-40).
+--- Adds (or returns the existing) tab. opts: title, order (lower = more to the left; built-in tabs are 0-40),
+--- icon (hex code of a Segoe Fluent Icons glyph such as "E7FC", or a letter or emoji; shown alone when the
+--- app shows tab icons only).
 function BC.AddTab(id, opts)
 	id = tostring(id)
 	opts = istable(opts) and opts or {}
@@ -160,7 +162,8 @@ function BC.AddTab(id, opts)
 	end
 	tab.title = tostring(opts.title or tab.title or id)
 	tab.order = tonumber(opts.order) or tab.order or 100
-	BC.Emit({ t = "tab", id = id, title = tab.title, order = tab.order })
+	if opts.icon ~= nil then tab.icon = tostring(opts.icon) end
+	BC.Emit({ t = "tab", id = id, title = tab.title, order = tab.order, icon = tab.icon })
 	return tab
 end
 
@@ -195,7 +198,7 @@ function BC.ResendRegistry()
 	for _, id in ipairs(R.order) do
 		local tab = R.tabs[id]
 		if tab then
-			BC.Emit({ t = "tab", id = id, title = tab.title, order = tab.order })
+			BC.Emit({ t = "tab", id = id, title = tab.title, order = tab.order, icon = tab.icon })
 			for _, wid in ipairs(tab.worder) do
 				local w = tab.widgets[wid]
 				BC.Emit({ t = "w", tab = id, id = wid, kind = w.kind, opts = w.opts })

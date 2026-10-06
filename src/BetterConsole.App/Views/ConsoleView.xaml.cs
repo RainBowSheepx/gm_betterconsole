@@ -32,6 +32,7 @@ public partial class ConsoleView : UserControl
     private readonly List<LineMeta> _meta = new(32768);
     private readonly ConsoleColorizer _colorizer;
     private readonly TimestampMargin _timeMargin;
+    private readonly SearchPanel _search;
     private readonly StringBuilder _pending = new(64 * 1024);
     private readonly List<LineMeta> _pendingMeta = new(1024);
     private readonly DispatcherTimer _valueTimer;
@@ -70,7 +71,8 @@ public partial class ConsoleView : UserControl
         Output.TextArea.TextView.LineTransformers.Add(_colorizer);
         _timeMargin = new TimestampMargin(GetMeta);
         Output.TextArea.LeftMargins.Insert(0, _timeMargin);
-        SearchPanel.Install(Output);
+        _search = SearchPanel.Install(Output);
+        _search.MarkerCornerRadius = 2;
 
         Output.TextArea.TextView.ScrollOffsetChanged += OnScrollChanged;
         // A horizontal scroll bar appearing (or a resize) shrinks the view: stay at the end.
@@ -121,6 +123,11 @@ public partial class ConsoleView : UserControl
         Output.TextArea.SelectionForeground = null;
         _colorizer.Reset(ThemeManager.GetColor("ConsoleBackground"));
         _timeMargin.Foreground = ThemeManager.GetBrush("TextMuted");
+        // Matches of the search: the warning colour, see-through so the text colours stay readable.
+        var w = ThemeManager.GetColor("Warning");
+        var marker = new SolidColorBrush(Color.FromArgb(0x55, w.R, w.G, w.B));
+        marker.Freeze();
+        _search.MarkerBrush = marker;
         Output.TextArea.TextView.Redraw();
         _timeMargin.InvalidateVisual();
     }
@@ -420,6 +427,13 @@ public partial class ConsoleView : UserControl
     {
         MarkUserScroll();
         Output.ScrollToVerticalOffset(Math.Max(0, Output.VerticalOffset + lines * Output.TextArea.TextView.DefaultLineHeight));
+    }
+
+    /// <summary>For the UI script runner: open the search box with a text.</summary>
+    public void ScriptFind(string text)
+    {
+        OnFind(this, new RoutedEventArgs());
+        _search.SearchPattern = text;
     }
 
     /// <summary>For the UI script runner: press a key in the input.</summary>

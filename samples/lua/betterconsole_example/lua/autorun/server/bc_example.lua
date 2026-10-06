@@ -8,7 +8,7 @@ It shows every widget type: KeyValue, Chart, Log, Table, Buttons, Text, and a st
 ]]
 if not BetterConsole then return end
 
-local tab = BetterConsole.AddTab("example_overview", { title = "Overview", order = 50 })
+local tab = BetterConsole.AddTab("example_overview", { title = "Overview", order = 50, icon = "E80F" })
 
 local info = tab:KeyValue("info", { title = "Server", span = 4 })
 local chart = tab:Chart("activity", {

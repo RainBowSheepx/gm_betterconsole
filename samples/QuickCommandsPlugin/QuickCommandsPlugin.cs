@@ -29,7 +29,7 @@ public sealed class QuickCommandsPlugin : IConsolePlugin
     public void Initialize(IPluginContext context)
     {
         _ctx = context;
-        context.Ui.AddTab("quickcommands", "Quick commands", BuildView, order: 60);
+        context.Ui.AddTab("quickcommands", "Quick commands", "", BuildView, order: 60);
         _mapItem = context.Ui.AddStatusItem("quickcommands.map", "", "Time on the current map (Quick commands plugin)");
         _mapItem.Visible = false;
         context.Server.SnapshotUpdated += OnSnapshot;

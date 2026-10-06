@@ -42,13 +42,16 @@ public partial class MainWindow : Window
         vm.PropertyChanged += OnVmChanged;
         vm.LuaTabAdded += tab =>
         {
-            var tv = new TabVm("lua:" + tab.Id, tab.Title, "", 100 + tab.Order, () => new LuaTabView(tab));
+            var tv = new TabVm("lua:" + tab.Id, tab.Title, tab.Icon, 100 + tab.Order, () => new LuaTabView(tab));
             vm.AddTab(tv);
         };
         vm.LuaTabRemoved += id => vm.RemoveTab("lua:" + id);
         vm.Tabs.CollectionChanged += (_, _) => ShowSelected();
 
         SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
+        TabScroller.ScrollChanged += (_, _) => UpdateTabOverflow();
+        vm.SettingsChanged += UpdateTabOverflow;
+        SizeChanged += (_, _) => UpdateCompactHeader();
         Loaded += OnLoaded;
         Closing += OnClosing;
         PreviewKeyDown += OnKeys;
@@ -122,11 +125,102 @@ public partial class MainWindow : Window
             var id = (string?)((FrameworkElement)Host.Children[i]).Tag;
             if (_vm.FindTab(id ?? "") == null) Host.Children.RemoveAt(i);
         }
+        // A tab chosen from the list or with Ctrl+number may be scrolled out of the strip.
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_vm.SelectedTab is { } t && TabStrip.ItemContainerGenerator.ContainerFromItem(t) is FrameworkElement fe) fe.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void OnTabClick(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: TabVm tab }) _vm.SelectedTab = tab;
+    }
+
+    private void UpdateTabOverflow()
+    {
+        UpdateCompactTabs();
+        TabsMenuButton.Visibility = TabScroller.ExtentWidth > TabScroller.ViewportWidth + 1 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Icons only, by the setting; "auto" switches to icons when the tabs with their titles do not fit
+    /// (and back once they do again, with a little margin so it does not flip at the edge).
+    /// </summary>
+    private void UpdateCompactTabs()
+    {
+        var mode = _vm.Settings.TabTitles;
+        if (mode == "icons") { _vm.CompactTabs = true; return; }
+        if (mode != "auto") { _vm.CompactTabs = false; return; }
+        if (!IsLoaded) return;
+        double full = 0;
+        var font = new Typeface((FontFamily)FindResource("Font.Ui"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+        double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        foreach (var tab in _vm.Tabs)
+        {
+            if (TabStrip.ItemContainerGenerator.ContainerFromItem(tab) is not FrameworkElement fe) return;
+            full += fe.ActualWidth;
+            if (_vm.CompactTabs)
+            {
+                // What the title adds: its width, the gap after the icon, the wider padding.
+                var text = new FormattedText(tab.Header, System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, font, FontSize, Brushes.White, dip);
+                full += text.WidthIncludingTrailingWhitespace + 7 + 2;
+            }
+        }
+        double room = TabScroller.ActualWidth + (TabsMenuButton.Visibility == Visibility.Visible ? TabsMenuButton.ActualWidth + 10 : 0);
+        if (room <= 0) return;
+        if (!_vm.CompactTabs && full > room + 0.5) _vm.CompactTabs = true;
+        else if (_vm.CompactTabs && full < room - 12) _vm.CompactTabs = false;
+    }
+
+    private void SetTabTitles(string mode)
+    {
+        _vm.Settings.TabTitles = mode;
+        _vm.Settings.Save();
+        UpdateCompactTabs();
+    }
+
+    private void OnTabsRightClick(object sender, MouseButtonEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = TabScroller, Placement = PlacementMode.MousePoint };
+        foreach (var (mode, text) in new[] { ("show", "Show tab titles"), ("icons", "Icons only"), ("auto", "Icons only when the titles do not fit") })
+        {
+            var item = new MenuItem { Header = text, IsCheckable = true, IsChecked = _vm.Settings.TabTitles == mode };
+            item.Click += (_, _) => SetTabTitles(mode);
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    /// <summary>All tabs in a list, for when they do not fit in the strip.</summary>
+    private void OnTabsMenu(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = TabsMenuButton, Placement = PlacementMode.Bottom, MaxHeight = Math.Max(200, ActualHeight - 80) };
+        var icons = (FontFamily)FindResource("Font.Icons");
+        foreach (var tab in _vm.Tabs)
+        {
+            var item = new MenuItem
+            {
+                Header = tab.HasBadge ? $"{tab.Header}  ({tab.Badge})" : tab.Header,
+                Icon = new TextBlock { Text = tab.Icon, FontFamily = icons, FontSize = 13 },
+                FontWeight = tab.IsSelected ? FontWeights.SemiBold : FontWeights.Normal,
+            };
+            item.Click += (_, _) => _vm.SelectedTab = tab;
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    /// <summary>For the UI script runner.</summary>
+    public void ScriptTabsMenu() => OnTabsMenu(this, new RoutedEventArgs());
+
+    /// <summary>In a narrow window the server buttons show only their icons, so more tabs fit.</summary>
+    private void UpdateCompactHeader()
+    {
+        var labels = ActualWidth < 1150 ? Visibility.Collapsed : Visibility.Visible;
+        StartLabel.Visibility = StopLabel.Visibility = RestartLabel.Visibility = labels;
+        UptimeHost.Visibility = ActualWidth < 900 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void OnTabsWheel(object sender, MouseWheelEventArgs e)

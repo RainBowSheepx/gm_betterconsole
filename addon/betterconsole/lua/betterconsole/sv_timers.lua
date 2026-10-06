@@ -22,10 +22,40 @@ function T.FnName(fn)
 	return tostring(info.short_src) .. ":" .. tostring(info.linedefined)
 end
 
+local function FileOf(fn)
+	local info = debug.getinfo(fn, "S")
+	return info and info.what ~= "C" and info.short_src or nil
+end
+
+--[[
+The function worth naming. A closure made in another file around exactly one Lua function is a
+wrapper: another addon's detour of timer.Simple or hook.Add (gProfiler wraps every timer and, while
+it profiles, every hook), or a callback factory. Its own location would put every timer behind that
+detour on one line; the function inside is the one somebody wrote.
+]]
+function T.Inner(fn)
+	if not debug.getupvalue then return fn end
+	for _ = 1, 3 do
+		local file = FileOf(fn)
+		local inner
+		for i = 1, 40 do
+			local name, v = debug.getupvalue(fn, i)
+			if name == nil then break end
+			if isfunction(v) and FileOf(v) then
+				if inner and inner ~= v then return fn end
+				inner = v
+			end
+		end
+		if not inner or FileOf(inner) == file then return fn end
+		fn = inner
+	end
+	return fn
+end
+
 local function Key(name, fn)
 	local key = tostring(name)
 	-- Generated or obfuscated names say nothing: add where the function lives.
-	if key:find("[^%w_%.%-:/ %[%]%(%)#,]") or #key > 64 then key = key:sub(1, 64) .. " @" .. T.FnName(fn) end
+	if key:find("[^%w_%.%-:/ %[%]%(%)#,]") or #key > 64 then key = key:sub(1, 64) .. " @" .. T.FnName(T.Inner(fn)) end
 	return key
 end
 

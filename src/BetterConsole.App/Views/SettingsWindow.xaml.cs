@@ -53,6 +53,7 @@ public partial class SettingsWindow : Window
         _themes = ThemeManager.Discover(Path.Combine(AppSettings.DataDirectory, "themes"));
         foreach (var t in _themes) Theme.Items.Add(t.Name);
         Theme.SelectedItem = ThemeManager.Current.Name;
+        TabTitles.SelectedItem = TabTitles.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.TabTitles) ?? TabTitles.Items[2];
 
         PluginList.ItemsSource = plugins.Plugins;
         PluginsInfo.Text = plugins.Plugins.Count == 0
@@ -179,6 +180,7 @@ public partial class SettingsWindow : Window
         s.MergeSimilarErrors = MergeSimilar.IsChecked == true;
         s.MaxErrorsPerList = ParseInt(MaxErrors.Text, 500, 50, 10000);
         s.Theme = ThemeManager.Current.Name;
+        s.TabTitles = (TabTitles.SelectedItem as ComboBoxItem)?.Tag as string ?? "auto";
         s.DisabledPlugins = _plugins.Plugins.Where(x => !x.Enabled).Select(x => x.Id).ToList();
         s.Save();
 

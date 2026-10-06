@@ -5,7 +5,10 @@
 ## The window
 
 - **Tabs** along the top. Badges show counts: players online, players with client errors, distinct
-  server errors (red while there are errors you have not looked at).
+  server errors (red while there are errors you have not looked at). When the tabs do not fit with
+  their titles they show only their icons (the title is in the tooltip); right-click the tab bar (or
+  Settings → Appearance) to always show titles or always only icons. Tabs that still do not fit are
+  in the list behind the arrow next to them; Ctrl+1…9 and Ctrl+Tab switch tabs too.
 - **Server controls** on the right: the state (*Running 1h 12m*), Start / Stop / Restart, the `…`
   menu (kill a hung server, open the server folder, documentation), the theme menu and Settings.
 - **Status bar** at the bottom.
@@ -20,7 +23,8 @@ The output of the server, with the colours addons print in (`MsgC`).
   where you are while new lines keep arriving; the **N new lines** button in the corner brings you
   back to the end and the console follows the output again. Scrolling to the end by hand does the
   same.
-- **Find**: Ctrl+F. Enter / Shift+Enter jump between matches.
+- **Find**: Ctrl+F. Enter / Shift+Enter (or F3 / Shift+F3) jump between matches; the buttons next
+  to the box match case, whole words or a regular expression. Esc closes it.
 - **Time**: the time each line arrived, in a margin (not part of the text, so copying skips it).
 - **Wrap**: break long lines instead of scrolling sideways.
 - **Save**: the whole console as a `.log` file, with dates.
@@ -140,17 +144,24 @@ Charts show 1 minute to 1 hour (buttons on the top right); hover them for exact 
 ![Profiler](images/profiler.png)
 
 Press **Start profiling** to time every hook, timer and net message handler, and to count outgoing
-net messages and entities per class. Numbers are averages per second since you started. Profiling
-costs 1–3 microseconds per call, so stop it when you are done (it also stops when BetterConsole
-disconnects).
+net messages and entities per class. Numbers are averages per second since you started; rows are
+updated in place and stay in the table, so the list does not jump. The biggest entries come first
+(click a column to sort by it); the order holds still while the pointer is over a table. After
+**Stop profiling** the last results stay until the next start. Profiling costs 1–3 microseconds per
+call, so stop it when you are done (it also stops when BetterConsole disconnects).
+
+It works next to other profilers (gProfiler and the like): BetterConsole does not wrap a hook twice
+when another profiler has wrapped its wrapper, and names timers after the function inside such
+wrappers.
 
 ## Status bar
 
 `map · Players 12/20 +2 · CPU 18.4% · In 34.2 KB/s · Out 120.5 KB/s · SV 33.0 fps ±0.4 ms · Tick 33/33 · Load 22% · Ents 2310 (812 ed.) · Lua 48 MB · RAM 1240 MB`
 
-Hover an item for its explanation. *SV idle* means the server ran no frames for a few seconds — it
-is hibernating (no players, `sv_hibernate_think 0`) or frozen. Addons and plugins can add their own
-items on the right.
+Hover an item for its explanation. *SV hibernating* means the server ran no frames for a few
+seconds — it is hibernating (no players, `sv_hibernate_think 0`) or frozen. Addons and plugins can
+add their own items after the built-in ones. In a narrow window the items that do not fit are left
+out, from the end.
 
 ## Themes
 

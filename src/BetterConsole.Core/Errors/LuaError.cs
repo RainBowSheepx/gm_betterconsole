@@ -31,6 +31,39 @@ public sealed record LuaError
 
 public enum ErrorSource { Bridge, ConsoleText }
 
+/// <summary>
+/// Lua's own traceback inside an error message ("msg\nstack traceback:\n\t[C]: in function 'error'\n\t..."),
+/// as code passes it to ErrorNoHalt. GMod's stack of such an error only shows where ErrorNoHalt was called.
+/// </summary>
+public static partial class LuaTraceback
+{
+    [GeneratedRegex(@"^\s+(?<src>\[C\]|\S[^:]*?)(?::(?<line>-?\d+))?: in (?<what>.+?)\s*$")]
+    private static partial Regex Line();
+
+    [GeneratedRegex(@"^(?:function|local|upvalue|method|field|global) '(?<name>[^']+)'$")]
+    private static partial Regex Name();
+
+    /// <summary>The message without the traceback and the traceback's frames; no frames when there is none.</summary>
+    public static (string Message, IReadOnlyList<StackFrame>? Frames) Split(string message)
+    {
+        int at = message.IndexOf("stack traceback:", StringComparison.Ordinal);
+        if (at < 0 || (at > 0 && message[at - 1] != '\n')) return (message, null);
+        var frames = new List<StackFrame>();
+        foreach (var raw in message[(at + "stack traceback:".Length)..].Split('\n'))
+        {
+            var l = raw.TrimEnd('\r');
+            if (l.Trim().Length == 0) continue;
+            var m = Line().Match(l);
+            if (!m.Success) break;
+            var what = m.Groups["what"].Value;
+            var nm = Name().Match(what);
+            frames.Add(new StackFrame(nm.Success ? nm.Groups["name"].Value : what == "main chunk" ? "main chunk" : "unknown",
+                m.Groups["src"].Value, m.Groups["line"].Success && int.TryParse(m.Groups["line"].Value, out int n) ? n : 0));
+        }
+        return frames.Count == 0 ? (message, null) : (message[..at].TrimEnd(), frames);
+    }
+}
+
 public static partial class ErrorAttribution
 {
     /// <summary>The folder the companion addon is installed to, which the engine uses as its title.</summary>

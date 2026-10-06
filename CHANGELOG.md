@@ -3,6 +3,33 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.1.3 - 2026-10-06
+
+- **Find (Ctrl+F) looks like the rest of the app**: a search box with match case, whole words and
+  regular expression toggles, previous / next / close buttons; matches are highlighted in the theme.
+- **Tabs with icons only.** When the tabs do not fit with their titles they show only their icons
+  (the title is in the tooltip); right-click the tab bar or use Settings → Appearance to always show
+  titles or always only icons. Tabs that still do not fit are listed behind an arrow next to them,
+  and the selected tab is always scrolled into view. Addon tabs can have their own icon
+  (`icon = "E7FC"` in `BetterConsole.AddTab`, an overload with an icon for plugins).
+- **Narrow windows**: Start / Stop / Restart show only their icons, and status bar items that do not
+  fit are left out instead of overlapping each other.
+- **Lua profiler**: rows are updated in place instead of being rebuilt every second, so the tables
+  keep their scroll position and nothing blinks; entries that drop out of the top list stay. The
+  biggest entries come first and the order holds still while the pointer is over a table. After
+  stopping, the last results stay. The mouse wheel scrolls the page once a table is at its end, and
+  the addon sends the top few hundred entries instead of 30–40.
+- **Works next to other profilers and detours** (gProfiler and similar): no hook is wrapped twice
+  (before, both re-wrapped each other every few seconds), timers are named after the function
+  inside another addon's timer wrapper, net functions are only put back when nobody detoured them
+  after us, and leftover wrappers only pass calls on.
+- Errors with a Lua traceback in the message (`ErrorNoHalt(debug.traceback())`, errors printed from
+  other Lua states) get their stack from the traceback.
+- The native module checks every pointer before reading the engine's command list, so a crash guard
+  of another module never sees an access violation from it.
+- Fixed: selected player rows turned black while their menu was open; a white square between the
+  scroll bars; long menus ran off the screen.
+
 ## v0.1.2 - 2026-10-06
 
 - **Works while the server hibernates.** An empty server with `sv_hibernate_think 0` runs no Lua,

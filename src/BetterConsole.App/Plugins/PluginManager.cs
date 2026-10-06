@@ -230,8 +230,14 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
     public void Send(string type, object? data = null) => _vm.Request("custom", new { type, data });
 
     // IUiHost
+    /// <summary>Segoe Fluent Icons "Puzzle".</summary>
+    private const string PluginTabIcon = "";
+
     public void AddTab(string id, string header, Func<FrameworkElement> content, int order = 1000) =>
-        _vm.AddTab(new TabVm("plugin:" + id, header, "", order, content));
+        AddTab(id, header, PluginTabIcon, content, order);
+
+    public void AddTab(string id, string header, string icon, Func<FrameworkElement> content, int order = 1000) =>
+        _vm.AddTab(new TabVm("plugin:" + id, header, string.IsNullOrWhiteSpace(icon) ? PluginTabIcon : icon, order, content));
 
     public void RemoveTab(string id) => _vm.RemoveTab("plugin:" + id);
 

@@ -137,6 +137,7 @@ void Send(string type, object? data = null);
 
 ```csharp
 void AddTab(string id, string header, Func<FrameworkElement> content, int order = 1000);  // created when first shown
+void AddTab(string id, string header, string icon, Func<FrameworkElement> content, int order = 1000);  // icon: a Segoe Fluent Icons glyph ("") or a short text
 void RemoveTab(string id);
 IStatusItem AddStatusItem(string id, string text, string? tooltip = null, int order = 1000);
 void Notify(string message, NotifyKind kind = NotifyKind.Info);

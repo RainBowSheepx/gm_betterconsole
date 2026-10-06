@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -29,9 +30,14 @@ public partial class StatsView : UserControl
 
         SetWindow(vm.Settings.StatsWindowMinutes);
         s.Updated += OnUpdated;
+        SetupProfileGrid(HooksGrid, nameof(ProfileRow.MsPerSec));
+        SetupProfileGrid(TimersGrid, nameof(ProfileRow.MsPerSec));
+        SetupProfileGrid(NetInGrid, nameof(ProfileRow.MsPerSec));
+        SetupProfileGrid(NetOutGrid, nameof(ProfileRow.BytesPerSec));
+        SetupProfileGrid(EntsGrid, nameof(EntityClassRow.Count));
         s.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(StatsVm.Profiling) or nameof(StatsVm.ProfilingInfo)) UpdateProfiler();
+            if (e.PropertyName is nameof(StatsVm.Profiling) or nameof(StatsVm.ProfilingInfo) or nameof(StatsVm.HasProfile)) UpdateProfiler();
             if (e.PropertyName is nameof(StatsVm.TickRate)) UpdateBudget();
         };
         s.Spikes.CollectionChanged += (_, _) => NoSpikes.Visibility = s.Spikes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -65,15 +71,36 @@ public partial class StatsView : UserControl
             : "Only process numbers (CPU, memory) until the companion addon connects.";
     }
 
+    /// <summary>
+    /// Biggest first. The order follows the numbers as they change (live sorting) but holds still while
+    /// the pointer is over the table, so the row being read does not move away.
+    /// </summary>
+    private static void SetupProfileGrid(DataGrid grid, string sortBy)
+    {
+        grid.Items.SortDescriptions.Add(new SortDescription(sortBy, ListSortDirection.Descending));
+        foreach (var col in grid.Columns)
+            if (col.SortMemberPath == sortBy) col.SortDirection = ListSortDirection.Descending;
+        if (grid.Items is ICollectionViewLiveShaping { CanChangeLiveSorting: true } live)
+        {
+            live.IsLiveSorting = true;
+            grid.MouseEnter += (_, _) => live.IsLiveSorting = false;
+            grid.MouseLeave += (_, _) => live.IsLiveSorting = true;
+        }
+    }
+
     private void UpdateProfiler()
     {
-        bool on = _vm.Stats.Profiling;
-        ProfTables.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        var s = _vm.Stats;
+        bool on = s.Profiling;
+        // The last results stay after stopping, until the next start.
+        bool show = on || s.HasProfile;
+        ProfTables.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         ProfLabel.Text = on ? "Stop profiling" : "Start profiling";
         ProfIcon.Text = on ? "" : "";
         ProfButton.SetResourceReference(StyleProperty, on ? "Btn.Danger" : "Btn.Primary");
-        if (on && !string.IsNullOrEmpty(_vm.Stats.ProfilingInfo)) ProfInfo.Text = _vm.Stats.ProfilingInfo;
-        else if (!on) ProfInfo.Text = "Times every hook, timer and net message handler and counts outgoing net messages and entities. Costs 1-3 µs per call while it runs, so switch it off when done.";
+        ProfInfo.Text = show && !string.IsNullOrEmpty(s.ProfilingInfo)
+            ? s.ProfilingInfo
+            : "Times every hook, timer and net message handler and counts outgoing net messages and entities. Costs 1-3 µs per call while it runs, so switch it off when done.";
     }
 
     private void OnProfile(object sender, RoutedEventArgs e) => _vm.SetProfiling(!_vm.Stats.Profiling);

@@ -43,6 +43,9 @@ R VCall(void* obj, int slot, A... args) {
     return reinterpret_cast<Fn>((*reinterpret_cast<void***>(obj))[slot])(obj, args...);
 }
 
+constexpr DWORD kReadable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+constexpr DWORD kExecutable = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+
 bool IsReadable(const void* p, size_t size) {
     MEMORY_BASIC_INFORMATION mbi{};
     if (!VirtualQuery(p, &mbi, sizeof(mbi))) return false;
@@ -50,6 +53,54 @@ bool IsReadable(const void* p, size_t size) {
     if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return false;
     auto end = static_cast<const uint8_t*>(mbi.BaseAddress) + mbi.RegionSize;
     return static_cast<const uint8_t*>(p) + size <= end;
+}
+
+// Every pointer from the engine's memory is checked before it is read, so a layout that is not what we
+// expect never raises an access violation: another module's vectored exception handler (a crash guard)
+// would see it before our __try and report a crash. The last few regions are remembered, because the
+// ConCommandBase nodes and their strings sit in a handful of them and VirtualQuery is a system call.
+class ReadCheck {
+public:
+    bool Readable(const void* p, size_t size) {
+        auto a = reinterpret_cast<uintptr_t>(p);
+        if (a < 0x10000) return false;
+        for (const auto& r : regions_)
+            if (r.end != 0 && a >= r.begin && a + size <= r.end) return r.readable;
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(p, &mbi, sizeof(mbi))) return false;
+        Region r{};
+        r.begin = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+        r.end = r.begin + mbi.RegionSize;
+        r.readable = mbi.State == MEM_COMMIT && (mbi.Protect & kReadable) && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD));
+        regions_[next_++ % kRegions] = r;
+        return r.readable && a + size <= r.end;
+    }
+
+    // A zero-terminated string of at most max chars, checked page by page.
+    bool String(const char* s, size_t max) {
+        if (!Readable(s, 1)) return false;
+        for (size_t i = 0; i < max; ++i) {
+            auto a = reinterpret_cast<uintptr_t>(s + i);
+            if ((a & 0xFFF) == 0 && !Readable(s + i, 1)) return false;
+            if (s[i] == 0) return true;
+        }
+        return false;
+    }
+
+private:
+    struct Region {
+        uintptr_t begin, end;
+        bool readable;
+    };
+    static constexpr int kRegions = 8;
+    Region regions_[kRegions]{};
+    unsigned next_ = 0;
+};
+
+bool IsExecutable(const void* p) {
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (!VirtualQuery(p, &mbi, sizeof(mbi))) return false;
+    return mbi.State == MEM_COMMIT && (mbi.Protect & kExecutable) && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD));
 }
 
 // ---- ConCommandBase walk ------------------------------------------------------------------
@@ -64,19 +115,25 @@ struct RawEntry {
     int flags;
 };
 
-// Only plain data in here: __try cannot unwind C++ objects.
+// Only plain data in here: __try cannot unwind C++ objects (ReadCheck has no destructor to run).
+// The __try is the last resort; the checks are what keep it from firing.
 int WalkRaw(const uint8_t* start, const char* expect, RawEntry* out, int max) {
     const size_t P = sizeof(void*);
+    ReadCheck rc;
     int n = 0;
     __try {
+        if (!rc.Readable(start, 6 * P)) return -1;
         const char* nm = *reinterpret_cast<const char* const*>(start + 3 * P);
-        if (!nm || std::strcmp(nm, expect) != 0) return -1;
+        if (!nm || !rc.String(nm, 256) || std::strcmp(nm, expect) != 0) return -1;
         for (const uint8_t* c = start; c && n < max; c = *reinterpret_cast<const uint8_t* const*>(c + P)) {
+            if (!rc.Readable(c, 6 * P)) break;
+            const char* name = *reinterpret_cast<const char* const*>(c + 3 * P);
+            const char* help = *reinterpret_cast<const char* const*>(c + 4 * P);
+            if (!name || !rc.String(name, 512)) break;
             out[n].node = c;
-            out[n].name = *reinterpret_cast<const char* const*>(c + 3 * P);
-            out[n].help = *reinterpret_cast<const char* const*>(c + 4 * P);
+            out[n].name = name;
+            out[n].help = help && rc.String(help, 4096) ? help : nullptr;
             out[n].flags = *reinterpret_cast<const int*>(c + 5 * P);
-            if (!out[n].name) break;
             ++n;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -85,7 +142,7 @@ int WalkRaw(const uint8_t* start, const char* expect, RawEntry* out, int max) {
     return n;
 }
 
-// Copies a C string under SEH (the pointer came from the engine's memory).
+// Copies a C string that WalkRaw has checked.
 int CopyString(const char* p, char* buf, int cap) {
     int n = 0;
     __try {
@@ -100,12 +157,13 @@ int CopyString(const char* p, char* buf, int cap) {
     return n;
 }
 
-// ConCommandBase::IsCommand is the second virtual (after the destructor). 1 / 0, -1 on a fault.
+// ConCommandBase::IsCommand is the second virtual (after the destructor). 1 / 0, -1 when it cannot be called.
 using IsCommandFn = bool(BC_THISCALL*)(const void*);
 int IsCommand(const uint8_t* node) {
     __try {
+        if (!IsReadable(node, sizeof(void*))) return -1;
         void* const* vt = *reinterpret_cast<void* const* const*>(node);
-        if (!vt || !IsReadable(vt, 2 * sizeof(void*)) || !vt[1]) return -1;
+        if (!vt || !IsReadable(vt, 2 * sizeof(void*)) || !vt[1] || !IsExecutable(vt[1])) return -1;
         return reinterpret_cast<IsCommandFn>(vt[1])(node) ? 1 : 0;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return -1;

@@ -57,12 +57,13 @@ A complete, working example is in [`samples/lua/betterconsole_example`](../sampl
 
 ### `BetterConsole.AddTab(id, options) → tab`
 
-Creates the tab, or returns the existing one with that id (and updates its title / order).
+Creates the tab, or returns the existing one with that id (and updates its title / order / icon).
 
 | Option | Type | Default | |
 |---|---|---|---|
 | `title` | string | the id | text on the tab |
 | `order` | number | 100 | position: lower is more to the left; built-in tabs use 0–40 |
+| `icon` | string | a document | the hex code of a [Segoe Fluent Icons](https://learn.microsoft.com/windows/apps/design/style/segoe-fluent-icons-font) glyph (`"E7FC"`), or a letter or emoji. When the app shows only the icons of its tabs (a narrow window, or the user's choice), this is all that tells your tab apart |
 
 ### `BetterConsole.GetTab(id) → tab | nil`
 

@@ -237,6 +237,46 @@ public class ClassifierTests
     }
 
     [Fact]
+    public void LuaTracebackGivesTheStack()
+    {
+        var h = new Harness();
+        h.Feed("[worker:jobs] chunk.lua:5: boom", "stack traceback:",
+            "        [C]: in function 'error'",
+            "        chunk.lua:5: in function 'step'",
+            "        chunk.lua:9: in main chunk", "", "after");
+        h.Settle();
+        Assert.Equal(["after"], h.Shown);
+        var e = Assert.Single(h.Errors);
+        Assert.Equal("chunk.lua:5: boom", e.Message);
+        Assert.Equal("worker:jobs", e.AddonTitle);
+        Assert.Equal([new StackFrame("error", "[C]", 0), new StackFrame("step", "chunk.lua", 5), new StackFrame("main chunk", "chunk.lua", 9)], e.Stack);
+    }
+
+    [Fact]
+    public void TracebackInAnErrorNoHaltMessageWinsOverTheCallSite()
+    {
+        var h = new Harness();
+        h.Feed("[ERROR] addons/x/lua/a.lua:3: bad answer", "stack traceback:",
+            "        addons/x/lua/a.lua:3: in function <addons/x/lua/a.lua:1>",
+            "  1. ErrorNoHalt - [C]:-1",
+            "   2. Call - addons/http/lua/h.lua:150", "", "after");
+        h.Settle();
+        Assert.Equal(["after"], h.Shown);
+        var e = Assert.Single(h.Errors);
+        Assert.Equal("addons/x/lua/a.lua:3: bad answer", e.Message);
+        Assert.Equal(new StackFrame("unknown", "addons/x/lua/a.lua", 3), Assert.Single(e.Stack));
+    }
+
+    [Fact]
+    public void TracebackIsSplitOffABridgeMessage()
+    {
+        var (msg, frames) = LuaTraceback.Split("addons/x/lua/a.lua:3: bad\nstack traceback:\n\t[C]: in function 'error'\n\taddons/x/lua/a.lua:3: in upvalue 'cb'\n");
+        Assert.Equal("addons/x/lua/a.lua:3: bad", msg);
+        Assert.Equal([new StackFrame("error", "[C]", 0), new StackFrame("cb", "addons/x/lua/a.lua", 3)], frames!);
+        Assert.Null(LuaTraceback.Split("x.lua:1: plain").Frames);
+    }
+
+    [Fact]
     public void FingerprintMergesEntityIndices()
     {
         var a = new LuaError { Realm = LuaRealm.Server, Message = "x.lua:1: Tried to use a NULL entity! Entity [123][prop_physics]" };

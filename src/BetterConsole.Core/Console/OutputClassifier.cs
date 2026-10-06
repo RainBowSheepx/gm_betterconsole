@@ -41,6 +41,20 @@ internal sealed partial class OutputClassifier
     [GeneratedRegex(@"^Timer Failed! \[.*\]\[.*\]\s*$")]
     private static partial Regex TimerFailed();
 
+    // Lua's own traceback (debug.traceback, luaL_traceback), in a message given to ErrorNoHalt or printed
+    // by code that runs Lua outside the game's state:
+    //   stack traceback:
+    //       [C]: in function 'error'
+    //       addons/x/lua/y.lua:12: in function 'name'      ("in main chunk", "in local 'f'", "in function <file:line>")
+    [GeneratedRegex(@"^\s*stack traceback:\s*$")]
+    private static partial Regex TracebackHead();
+
+    [GeneratedRegex(@"^\s+(?<src>\[C\]|\S[^:]*?)(?::(?<line>-?\d+))?: in (?<what>.+?)\s*$")]
+    private static partial Regex TracebackLine();
+
+    [GeneratedRegex(@"^(?:function|local|upvalue|method|field|global) '(?<name>[^']+)'$")]
+    private static partial Regex TracebackName();
+
     [GeneratedRegex(@"^\[(?<name>.*)\|(?<uid>\d+)\|(?<sid>[^\]|]*)\] Lua Error:\s*$")]
     private static partial Regex ClientHead();
 
@@ -131,12 +145,39 @@ internal sealed partial class OutputClassifier
 
         if (_mode == Mode.InError)
         {
+            if (TracebackHead().IsMatch(text))
+            {
+                _error!.InTraceback = true;
+                _error.SawStack = true;
+                _error.LastLineAt = line.Time;
+                HideError(id, line);
+                return;
+            }
+            if (_error!.InTraceback)
+            {
+                var t = TracebackLine().Match(text);
+                if (t.Success)
+                {
+                    var what = t.Groups["what"].Value;
+                    var nm = TracebackName().Match(what);
+                    var fn = nm.Success ? nm.Groups["name"].Value : what == "main chunk" ? "main chunk" : "unknown";
+                    _error.Frames.Add(new StackFrame(fn, t.Groups["src"].Value,
+                        t.Groups["line"].Success && int.TryParse(t.Groups["line"].Value, out int tl) ? tl : 0));
+                    _error.FromTraceback = true;
+                    _error.LastLineAt = line.Time;
+                    HideError(id, line);
+                    return;
+                }
+                _error.InTraceback = false;
+            }
             var m = StackLine().Match(text);
             if (m.Success)
             {
-                _error!.SawStack = true;
-                _error.Frames.Add(new StackFrame(m.Groups["fn"].Value, m.Groups["src"].Value,
-                    m.Groups["line"].Success && int.TryParse(m.Groups["line"].Value, out int ln) ? ln : 0));
+                _error.SawStack = true;
+                // After a Lua traceback in the message GMod's stack only shows where ErrorNoHalt was called.
+                if (!_error.FromTraceback)
+                    _error.Frames.Add(new StackFrame(m.Groups["fn"].Value, m.Groups["src"].Value,
+                        m.Groups["line"].Success && int.TryParse(m.Groups["line"].Value, out int ln) ? ln : 0));
                 _error.LastLineAt = line.Time;
                 HideError(id, line);
                 return;
@@ -384,6 +425,10 @@ internal sealed partial class OutputClassifier
         public (long Id, ConsoleLine Line, (long Id, ConsoleLine Line)? BlankBefore)? PlainHead;
         public readonly List<StackFrame> Frames = new();
         public bool SawStack;
+        /// <summary>Inside a "stack traceback:" block.</summary>
+        public bool InTraceback;
+        /// <summary>The frames came from a Lua traceback (they win over GMod's stack lines after it).</summary>
+        public bool FromTraceback;
         public readonly DateTime StartedAt = at;
         public DateTime LastLineAt = at;
         public readonly PlayerRef? Player = player;

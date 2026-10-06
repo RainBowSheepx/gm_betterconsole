@@ -15,7 +15,27 @@ public sealed partial class LuaTabVm : ObservableObject
 
     public string Id { get; }
     [ObservableProperty] private string title = "";
+    [ObservableProperty] private string icon = DefaultIcon;
     [ObservableProperty] private int order = 100;
+
+    /// <summary>Segoe Fluent Icons "Document".</summary>
+    public const string DefaultIcon = "";
+
+    /// <summary>
+    /// The icon option of BetterConsole.AddTab: the hex code of a Segoe Fluent Icons glyph ("E7FC"), or a
+    /// short text (a letter, an emoji). Missing or empty: the document icon.
+    /// </summary>
+    public static string ParseIcon(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return DefaultIcon;
+        s = s.Trim();
+        if (s.Length is 4 or 5 && int.TryParse(s, System.Globalization.NumberStyles.HexNumber, null, out int cp) && cp is >= 0x20 and <= 0x10FFFF)
+            return char.ConvertFromUtf32(cp);
+        var e = System.Globalization.StringInfo.GetTextElementEnumerator(s);
+        var sb = new System.Text.StringBuilder();
+        for (int n = 0; n < 2 && e.MoveNext(); n++) sb.Append(e.GetTextElement());
+        return sb.ToString();
+    }
     public ObservableCollection<LuaWidgetVm> Widgets { get; } = new();
 
     /// <summary>Sends an action (button press) back to the server.</summary>

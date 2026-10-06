@@ -22,13 +22,14 @@ public sealed partial class TabVm : ObservableObject
     {
         Id = id;
         this.header = header;
-        Icon = icon;
+        this.icon = icon;
         Order = order;
         Factory = factory;
     }
 
     public string Id { get; }
-    public string Icon { get; }
+    /// <summary>A glyph of Segoe Fluent Icons (or any short text).</summary>
+    [ObservableProperty] private string icon;
     public int Order { get; set; }
     public Func<FrameworkElement> Factory { get; }
     [ObservableProperty] private string header;
@@ -138,6 +139,8 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] private string luaText = "—";
     [ObservableProperty] private string memText = "—";
     [ObservableProperty] private bool serverIdle;
+    /// <summary>Tab headers show only their icons (the title is in the tooltip).</summary>
+    [ObservableProperty] private bool compactTabs;
 
     private int? _lastExitCode;
 
@@ -508,6 +511,7 @@ public sealed partial class MainViewModel : ObservableObject
             tab = new LuaTabVm(id) { ActionSink = (t, w, a) => Request("action", new { tab = t, widget = w, id = a }) };
             LuaTabs[id] = tab;
             tab.Title = StatsVm.Str(m, "title") ?? id;
+            tab.Icon = LuaTabVm.ParseIcon(StatsVm.Str(m, "icon"));
             var order = StatsVm.Num(m, "order");
             tab.Order = double.IsNaN(order) ? 100 : (int)order;
             LuaTabAdded?.Invoke(tab);
@@ -515,7 +519,12 @@ public sealed partial class MainViewModel : ObservableObject
         else
         {
             tab.Title = StatsVm.Str(m, "title") ?? tab.Title;
-            if (FindTab("lua:" + id) is { } tv) tv.Header = tab.Title;
+            tab.Icon = LuaTabVm.ParseIcon(StatsVm.Str(m, "icon"));
+            if (FindTab("lua:" + id) is { } tv)
+            {
+                tv.Header = tab.Title;
+                tv.Icon = tab.Icon;
+            }
         }
     }
 
@@ -539,6 +548,9 @@ public sealed partial class MainViewModel : ObservableObject
         if (m.TryGetProperty("stack", out var st) && st.ValueKind == JsonValueKind.Array)
             foreach (var f in st.EnumerateArray())
                 frames.Add(new StackFrame(StatsVm.Str(f, "fn") ?? "unknown", StatsVm.Str(f, "src") ?? "?", (int)StatsVm.Num0(f, "line")));
+        // A Lua traceback in the message (ErrorNoHalt(debug.traceback())) says more than GMod's stack of that call.
+        var (message, traceback) = LuaTraceback.Split(StatsVm.Str(m, "msg") ?? "");
+        if (traceback != null) frames = new List<StackFrame>(traceback);
         var time = StatsVm.Num(m, "time") is var tt && !double.IsNaN(tt) ? DateTimeOffset.FromUnixTimeSeconds((long)tt).LocalDateTime : DateTime.Now;
         PlayerRef? ply = null;
         if (m.TryGetProperty("ply", out var p) && p.ValueKind == JsonValueKind.Object)
@@ -546,7 +558,7 @@ public sealed partial class MainViewModel : ObservableObject
         var err = new LuaError
         {
             Realm = StatsVm.Str(m, "realm") == "client" ? LuaRealm.Client : LuaRealm.Server,
-            Message = StatsVm.Str(m, "msg") ?? "",
+            Message = message,
             Stack = frames,
             Time = time,
             Count = (int)Math.Max(1, StatsVm.Num0(m, "n")),

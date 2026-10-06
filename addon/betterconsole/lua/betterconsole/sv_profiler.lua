@@ -7,9 +7,9 @@ Switched on from the Statistics tab ("Profile Lua"). While on:
   * net.Receive handlers are timed and incoming messages counted with their size;
   * net.Start / net.Send* are detoured to count outgoing messages and bytes per name;
   * entities are counted by class every 5 seconds.
-Once a second the top entries go to the app: averages per second since profiling started, so the
-ranking is steady (a timer that runs every 2 s does not blink in and out). Off = every wrapper and
-detour is removed again.
+Once a second the entries go to the app (the top few hundred of each kind): averages per second since
+profiling started, so the ranking is steady (a timer that runs every 2 s does not blink in and out).
+The app keeps the rows and updates them in place. Off = every wrapper and detour is removed again.
 
 Wrappers cost about 1-3 microseconds per call, so a busy server pays a few percent while profiling.
 ]]
@@ -56,8 +56,11 @@ local wrapped = {}   -- ULib / DLib: [data] = {orig, w, event, dlib}; GMod / Srl
 local ours = setmetatable({}, { __mode = "k" })
 
 -- Fixed number of results instead of "...": hook.Call passes on at most six.
+-- Another profiler (gProfiler) may keep a reference to the wrapper and put it back after we stopped:
+-- then it only passes the call on.
 local function Wrapper(key, orig, src)
 	local w = function(...)
+		if not P.on then return orig(...) end
 		local t0 = SysTime()
 		local a, b, c, d, e, f = orig(...)
 		Add("hooks", key, SysTime() - t0, nil, src)
@@ -67,8 +70,40 @@ local function Wrapper(key, orig, src)
 	return w
 end
 
+-- Whether fn is one of our wrappers or another addon's wrapper around one (gProfiler re-adds every hook
+-- through its own wrapper while it profiles). Wrapping those again would stack a layer every 5 seconds.
+local function HasOurs(fn, depth)
+	if ours[fn] then return true end
+	if depth <= 0 or not debug.getupvalue then return false end
+	for i = 1, 40 do
+		local name, v = debug.getupvalue(fn, i)
+		if name == nil then break end
+		if isfunction(v) and HasOurs(v, depth - 1) then return true end
+	end
+	return false
+end
+
 local function Skip(event, name)
 	return isstring(name) and name:find("^BetterConsole") ~= nil
+end
+
+local function SrcOf(fn) return Src(T and T.Inner and T.Inner(fn) or fn) end
+
+local function FileOf(fn)
+	local info = isfunction(fn) and debug.getinfo(fn, "S")
+	return info and info.short_src or nil
+end
+
+-- Replaces a hook of GMod's own hook library. While another addon has detoured hook.Add (gProfiler
+-- does while it profiles), hook.Add would wrap our wrapper once more and that layer would stay after
+-- both profilers stopped; GMod's hook.Add only stores the function, so the table is written directly.
+local function SetHook(event, name, fn)
+	local list = hook.GetTable()[event]
+	if list and list[name] ~= nil and FileOf(hook.Add) ~= FileOf(hook.GetTable) then
+		list[name] = fn
+	else
+		hook.Add(event, name, fn)
+	end
 end
 
 local function SrlionEvents()
@@ -96,13 +131,13 @@ local function WrapHooks()
 		local todo = {}
 		for event, ev in pairs(events) do
 			for name, ht in pairs(ev) do
-				if name ~= 0 and istable(ht) and isfunction(ht.real_func) and not ours[ht.real_func] and not Skip(event, name) then
+				if name ~= 0 and istable(ht) and isfunction(ht.real_func) and not Skip(event, name) and not HasOurs(ht.real_func, 2) then
 					todo[#todo + 1] = { event, name, ht.real_func, ht.priority }
 				end
 			end
 		end
 		for _, x in ipairs(todo) do
-			local w = Wrapper(KeyOf(x[1], x[2]), x[3], Src(x[3]))
+			local w = Wrapper(KeyOf(x[1], x[2]), x[3], SrcOf(x[3]))
 			wrapped[x[1] .. "\0" .. tostring(x[2])] = { x[1], x[2], x[3], w, x[4], srlion = true }
 			hook.Add(x[1], x[2], w, x[4])
 		end
@@ -114,9 +149,9 @@ local function WrapHooks()
 			local changed = false
 			for _, list in pairs(prios) do
 				for name, data in pairs(list) do
-					if istable(data) and isfunction(data.callback) and not wrapped[data] and not Skip(event, name) then
+					if istable(data) and isfunction(data.callback) and not wrapped[data] and not Skip(event, name) and not HasOurs(data.callback, 2) then
 						local orig = data.callback
-						local w = Wrapper(KeyOf(event, name), orig, Src(orig))
+						local w = Wrapper(KeyOf(event, name), orig, SrcOf(orig))
 						data.callback = w
 						if data.fn == orig then data.fn = w end
 						wrapped[data] = { orig, w, event, dlib = true }
@@ -133,9 +168,9 @@ local function WrapHooks()
 		for event, prios in pairs(ulib) do
 			for _, list in pairs(prios) do
 				for name, data in pairs(list) do
-					if istable(data) and isfunction(data.fn) and not wrapped[data] and not Skip(event, name) then
+					if istable(data) and isfunction(data.fn) and not wrapped[data] and not Skip(event, name) and not HasOurs(data.fn, 2) then
 						local orig = data.fn
-						local w = Wrapper(KeyOf(event, name), orig, Src(orig))
+						local w = Wrapper(KeyOf(event, name), orig, SrcOf(orig))
 						data.fn = w
 						wrapped[data] = { orig, w }
 					end
@@ -147,15 +182,15 @@ local function WrapHooks()
 	local todo = {}
 	for event, list in pairs(hook.GetTable()) do
 		for name, fn in pairs(list) do
-			if isfunction(fn) and not ours[fn] and not Skip(event, name) then
+			if isfunction(fn) and not Skip(event, name) and not HasOurs(fn, 2) then
 				todo[#todo + 1] = { event, name, fn }
 			end
 		end
 	end
 	for _, x in ipairs(todo) do
-		local w = Wrapper(KeyOf(x[1], x[2]), x[3], Src(x[3]))
+		local w = Wrapper(KeyOf(x[1], x[2]), x[3], SrcOf(x[3]))
 		wrapped[tostring(x[1]) .. "\0" .. tostring(x[2])] = { x[1], x[2], x[3], w }
-		hook.Add(x[1], x[2], w)
+		SetHook(x[1], x[2], w)
 	end
 end
 
@@ -163,12 +198,14 @@ local function UnwrapHooks()
 	local rebuild = {}
 	local events = HookLib() == "srlion" and SrlionEvents() or nil
 	for key, rec in pairs(wrapped) do
+		-- Where another addon wrapped our wrapper meanwhile (GMod has no debug.setupvalue to take it out),
+		-- ours stays inside and only passes the calls on.
 		if rec.srlion then
 			local ht = events and events[rec[1]] and events[rec[1]][rec[2]]
 			if istable(ht) and ht.real_func == rec[4] then hook.Add(rec[1], rec[2], rec[3], rec[5]) end
 		elseif isstring(key) then
 			local list = hook.GetTable()[rec[1]]
-			if list and list[rec[2]] == rec[4] then hook.Add(rec[1], rec[2], rec[3]) end
+			if list and list[rec[2]] == rec[4] then SetHook(rec[1], rec[2], rec[3]) end
 		elseif rec.dlib then
 			if key.callback == rec[2] then key.callback = rec[1] end
 			if key.fn == rec[2] then key.fn = rec[1] end
@@ -187,8 +224,10 @@ end
 -- net messages
 ---------------------------------------------------------------------------
 local netWrapped = {}   -- [lowercase name] = { orig, w }
-local origReceive
-local origStart, origSend, origBroadcast, origOmit, origPAS, origPVS
+-- [field of net] = { orig, ours } while our detour is in that function's chain. Another addon may detour
+-- the same function after us (its own profiler); then ours cannot be taken out without breaking its
+-- chain, so it stays, passes calls on while the profiler is off, and is used again on the next start.
+local netDetours = {}
 local sending
 
 local function WrapReceiver(name, fn)
@@ -196,6 +235,7 @@ local function WrapReceiver(name, fn)
 	local key = tostring(name)
 	local src = Src(fn)
 	local w = function(len, ply)
+		if not P.on then return fn(len, ply) end
 		local t0 = SysTime()
 		fn(len, ply)
 		Add("netin", key, SysTime() - t0, (len or 0) / 8, src)
@@ -228,35 +268,39 @@ local function Omitted(target) return player.GetCount() - Recipients(target) end
 local function Everyone() return player.GetCount() end
 local function One() return 1 end
 
+local function Detour(field, make)
+	if netDetours[field] then return end -- still in the chain from an earlier start
+	local orig = net[field]
+	if not isfunction(orig) then return end
+	local f = make(orig)
+	netDetours[field] = { orig, f }
+	net[field] = f
+end
+
 local function InstallNet()
 	for name, fn in pairs(net.Receivers) do
 		net.Receivers[name] = WrapReceiver(name, fn)
 	end
-	origReceive = net.Receive
-	net.Receive = function(name, fn)
-		origReceive(name, fn)
-		local lname = string.lower(tostring(name))
-		net.Receivers[lname] = WrapReceiver(lname, net.Receivers[lname])
-	end
-	origStart, origSend, origBroadcast, origOmit, origPAS, origPVS = net.Start, net.Send, net.Broadcast, net.SendOmit, net.SendPAS, net.SendPVS
-	net.Start = function(name, unreliable)
-		sending = tostring(name)
-		return origStart(name, unreliable)
-	end
-	net.Send = function(ply)
-		CountSend(Recipients, ply)
-		return origSend(ply)
-	end
-	net.Broadcast = function()
-		CountSend(Everyone)
-		return origBroadcast()
-	end
-	net.SendOmit = function(ply)
-		CountSend(Omitted, ply)
-		return origOmit(ply)
-	end
-	net.SendPAS = function(pos) CountSend(One) return origPAS(pos) end
-	net.SendPVS = function(pos) CountSend(One) return origPVS(pos) end
+	Detour("Receive", function(orig)
+		return function(name, fn)
+			orig(name, fn)
+			if not P.on then return end
+			local lname = string.lower(tostring(name))
+			net.Receivers[lname] = WrapReceiver(lname, net.Receivers[lname])
+		end
+	end)
+	Detour("Start", function(orig)
+		return function(name, unreliable)
+			if P.on then sending = tostring(name) end
+			return orig(name, unreliable)
+		end
+	end)
+	-- With the profiler off nothing is counted (CountSend needs the name net.Start remembered).
+	Detour("Send", function(orig) return function(ply) CountSend(Recipients, ply) return orig(ply) end end)
+	Detour("Broadcast", function(orig) return function() CountSend(Everyone) return orig() end end)
+	Detour("SendOmit", function(orig) return function(ply) CountSend(Omitted, ply) return orig(ply) end end)
+	Detour("SendPAS", function(orig) return function(pos) CountSend(One) return orig(pos) end end)
+	Detour("SendPVS", function(orig) return function(pos) CountSend(One) return orig(pos) end end)
 end
 
 local function RemoveNet()
@@ -264,18 +308,21 @@ local function RemoveNet()
 		if net.Receivers[name] == rec[2] then net.Receivers[name] = rec[1] end
 	end
 	netWrapped = {}
-	if origReceive then net.Receive = origReceive end
-	if origStart then
-		net.Start, net.Send, net.Broadcast, net.SendOmit, net.SendPAS, net.SendPVS = origStart, origSend, origBroadcast, origOmit, origPAS, origPVS
+	for field, d in pairs(netDetours) do
+		-- Only where nobody detoured on top of ours (see netDetours).
+		if net[field] == d[2] then
+			net[field] = d[1]
+			netDetours[field] = nil
+		end
 	end
-	origReceive, origStart = nil, nil
+	sending = nil
 end
 
 ---------------------------------------------------------------------------
 -- timers (wrapped by sv_timers.lua since start-up)
 ---------------------------------------------------------------------------
 local function MeasureTimer(key, fn)
-	key = key or T.FnName(fn)
+	key = key or T.FnName(T.Inner(fn))
 	-- BetterConsole's own timers are not what anybody profiles.
 	if key:find("^BetterConsole%.") then
 		fn()
@@ -322,19 +369,19 @@ function BC.ProfilerTick(now, wall)
 	local entList = {}
 	for c, n in pairs(entCounts) do entList[#entList + 1] = { k = c, n = n } end
 	table.sort(entList, function(a, b) return a.n > b.n end)
-	for i = 31, #entList do entList[i] = nil end
+	for i = 201, #entList do entList[i] = nil end
 
 	-- Everything is summed up since profiling started and divided by that time.
 	local span = math.max(now - (P.since or now), 1)
 	-- Bytes first for outgoing messages: they cost no measurable Lua time.
-	local netout = Top("netout", span, 30)
+	local netout = Top("netout", span, 150)
 	table.sort(netout, function(a, b) return a.b > b.b end)
 
 	BC.Emit({
 		t = "prof",
-		hooks = Top("hooks", span, 40),
-		timers = Top("timers", span, 30),
-		netin = Top("netin", span, 30),
+		hooks = Top("hooks", span, 300),
+		timers = Top("timers", span, 150),
+		netin = Top("netin", span, 150),
 		netout = netout,
 		ents = entList,
 		entTotal = entTotal,

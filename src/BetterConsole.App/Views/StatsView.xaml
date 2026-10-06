@@ -32,6 +32,7 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="CanUserSortColumns" Value="True" />
             <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+            <Setter Property="c:ScrollChain.IsEnabled" Value="True" />
         </Style>
     </UserControl.Resources>
 
@@ -168,7 +169,7 @@
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="Lag spikes (frames longer than 3 ticks)" Style="{StaticResource Text.Title}" FontSize="12.5" Margin="2,0,0,6" />
                         <Grid>
-                            <ItemsControl x:Name="SpikeList" ItemsSource="{Binding Stats.Spikes}">
+                            <ItemsControl x:Name="SpikeList" ItemsSource="{Binding Stats.Spikes}" c:ScrollChain.IsEnabled="True">
                                 <ItemsControl.Template>
                                     <ControlTemplate>
                                         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -228,7 +229,7 @@
                         </Grid.RowDefinitions>
                         <StackPanel Grid.ColumnSpan="3" Margin="0,0,0,12">
                             <TextBlock Text="HOOKS (event / name)" Style="{StaticResource Text.Section}" />
-                            <DataGrid ItemsSource="{Binding Stats.Hooks}" Style="{StaticResource ProfGrid}">
+                            <DataGrid x:Name="HooksGrid" ItemsSource="{Binding Stats.Hooks}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Hook" Binding="{Binding Key}" Width="2*" />
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="70" />
@@ -240,7 +241,7 @@
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
                             <TextBlock Text="TIMERS" Style="{StaticResource Text.Section}" />
-                            <DataGrid ItemsSource="{Binding Stats.Timers}" Style="{StaticResource ProfGrid}">
+                            <DataGrid x:Name="TimersGrid" ItemsSource="{Binding Stats.Timers}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Timer" Binding="{Binding Key}" Width="*" />
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="65" />
@@ -251,16 +252,16 @@
                         </StackPanel>
                         <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,12">
                             <TextBlock Text="ENTITIES BY CLASS" Style="{StaticResource Text.Section}" />
-                            <DataGrid ItemsSource="{Binding Stats.EntityClasses}" Style="{StaticResource ProfGrid}">
+                            <DataGrid x:Name="EntsGrid" ItemsSource="{Binding Stats.EntityClasses}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Class" Binding="{Binding Class}" Width="*" />
-                                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="70" />
+                                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" SortMemberPath="Count" Width="70" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
                         <StackPanel Grid.Row="2" Grid.Column="0">
                             <TextBlock Text="NET MESSAGES RECEIVED" Style="{StaticResource Text.Section}" />
-                            <DataGrid ItemsSource="{Binding Stats.NetReceive}" Style="{StaticResource ProfGrid}">
+                            <DataGrid x:Name="NetInGrid" ItemsSource="{Binding Stats.NetReceive}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Message" Binding="{Binding Key}" Width="*" />
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="60" />
@@ -271,7 +272,7 @@
                         </StackPanel>
                         <StackPanel Grid.Row="2" Grid.Column="2">
                             <TextBlock Text="NET MESSAGES SENT" Style="{StaticResource Text.Section}" />
-                            <DataGrid ItemsSource="{Binding Stats.NetSend}" Style="{StaticResource ProfGrid}">
+                            <DataGrid x:Name="NetOutGrid" ItemsSource="{Binding Stats.NetSend}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Message" Binding="{Binding Key}" Width="*" />
                                     <DataGridTextColumn Header="msg/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="60" />

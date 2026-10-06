@@ -29,6 +29,9 @@ public sealed class AppSettings
 
     public int StatsWindowMinutes { get; set; } = 5;
 
+    /// <summary>Tab headers: "show" (icon and title), "icons" (icon only) or "auto" (icon only when the titles do not fit).</summary>
+    public string TabTitles { get; set; } = "auto";
+
     public double WindowLeft { get; set; } = double.NaN;
     public double WindowTop { get; set; } = double.NaN;
     public double WindowWidth { get; set; } = 1280;

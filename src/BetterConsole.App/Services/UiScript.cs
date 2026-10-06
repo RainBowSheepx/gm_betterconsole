@@ -102,6 +102,14 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 Console()?.ScriptKey(arg);
                 await Task.Delay(250);
                 break;
+            case "tabsmenu":
+                window.ScriptTabsMenu();
+                await Task.Delay(400);
+                break;
+            case "find":
+                Console()?.ScriptFind(arg);
+                await Task.Delay(400);
+                break;
             case "expand":
             {
                 var a = arg.Split(' ');

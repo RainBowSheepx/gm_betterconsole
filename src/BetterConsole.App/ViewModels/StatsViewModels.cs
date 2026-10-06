@@ -61,8 +61,20 @@ public sealed class TimeSeries
     }
 }
 
-public sealed record ProfileRow(string Key, double MsPerSec, double CallsPerSec, double MaxMs, double BytesPerSec, string? Source)
+/// <summary>
+/// One line of a profiler table. Rows are updated in place (the tables keep their scroll position and
+/// selection) and stay when an entry drops out of the addon's top list.
+/// </summary>
+public sealed partial class ProfileRow(string key, string? source) : ObservableObject
 {
+    public string Key { get; } = key;
+    public string? Source { get; } = source;
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(MsText))] private double msPerSec;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CallsText))] private double callsPerSec;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(MaxText))] private double maxMs;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BytesText))] private double bytesPerSec;
+
     public string MsText => MsPerSec >= 100 ? MsPerSec.ToString("F0") : MsPerSec.ToString("F2");
     public string CallsText => CallsPerSec >= 100 ? CallsPerSec.ToString("F0") : CallsPerSec.ToString("F1");
     public string MaxText => MaxMs.ToString("F2");
@@ -72,7 +84,11 @@ public sealed record ProfileRow(string Key, double MsPerSec, double CallsPerSec,
         b >= 1024 * 1024 ? $"{b / (1024 * 1024):F2} MB" : b >= 1024 ? $"{b / 1024:F1} KB" : $"{b:F0} B";
 }
 
-public sealed record EntityClassRow(string Class, int Count);
+public sealed partial class EntityClassRow(string @class) : ObservableObject
+{
+    public string Class { get; } = @class;
+    [ObservableProperty] private int count;
+}
 
 public sealed record SpikeRow(DateTime Time, double Ms, double? BusyMs)
 {
@@ -148,26 +164,86 @@ public sealed partial class StatsVm : ObservableObject
         Spikes.Clear();
     }
 
-    public void ApplyProfile(JsonElement m)
+    private readonly Dictionary<ObservableCollection<ProfileRow>, Dictionary<string, ProfileRow>> _rows = new();
+    private readonly Dictionary<string, EntityClassRow> _entityRows = new();
+    private double _profiledFor;
+
+    /// <summary>True while there are results to show: during profiling and after it stopped.</summary>
+    public bool HasProfile => Hooks.Count + Timers.Count + NetReceive.Count + NetSend.Count + EntityClasses.Count > 0;
+
+    partial void OnProfilingChanged(bool value)
     {
-        Fill(Hooks, m, "hooks");
-        Fill(Timers, m, "timers");
-        Fill(NetReceive, m, "netin");
-        Fill(NetSend, m, "netout");
-        EntityClasses.Clear();
-        if (m.TryGetProperty("ents", out var ents) && ents.ValueKind == JsonValueKind.Array)
-            foreach (var e in ents.EnumerateArray())
-                EntityClasses.Add(new EntityClassRow(Str(e, "k") ?? "?", (int)Num(e, "n")));
-        double since = m.TryGetProperty("since", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetDouble() : 0;
-        ProfilingInfo = $"Profiling for {TimeSpan.FromSeconds(since):mm\\:ss} · averages per second since the start, refreshed every second";
+        if (value)
+        {
+            // A new session starts from zero, like the numbers in the addon.
+            foreach (var c in new[] { Hooks, Timers, NetReceive, NetSend }) c.Clear();
+            _rows.Clear();
+            EntityClasses.Clear();
+            _entityRows.Clear();
+            _profiledFor = 0;
+            ProfilingInfo = "Profiling · waiting for the first numbers…";
+        }
+        else if (HasProfile)
+        {
+            ProfilingInfo = $"Stopped after {TimeSpan.FromSeconds(_profiledFor):mm\\:ss}. These are the last results (averages per second over that time); they stay until the next start.";
+        }
+        OnPropertyChanged(nameof(HasProfile));
     }
 
-    private static void Fill(ObservableCollection<ProfileRow> target, JsonElement m, string name)
+    public void ApplyProfile(JsonElement m)
     {
-        target.Clear();
+        if (!Profiling) return;
+        Merge(Hooks, m, "hooks");
+        Merge(Timers, m, "timers");
+        Merge(NetReceive, m, "netin");
+        Merge(NetSend, m, "netout");
+        if (m.TryGetProperty("ents", out var ents) && ents.ValueKind == JsonValueKind.Array)
+        {
+            var seen = new HashSet<string>();
+            foreach (var e in ents.EnumerateArray())
+            {
+                var cls = Str(e, "k") ?? "?";
+                seen.Add(cls);
+                if (!_entityRows.TryGetValue(cls, out var row))
+                {
+                    row = new EntityClassRow(cls);
+                    _entityRows[cls] = row;
+                    EntityClasses.Add(row);
+                }
+                row.Count = (int)Num0(e, "n");
+            }
+            // The addon sends every class: one that is missing has no entities left.
+            for (int i = EntityClasses.Count - 1; i >= 0; i--)
+            {
+                if (seen.Contains(EntityClasses[i].Class)) continue;
+                _entityRows.Remove(EntityClasses[i].Class);
+                EntityClasses.RemoveAt(i);
+            }
+        }
+        _profiledFor = m.TryGetProperty("since", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetDouble() : 0;
+        ProfilingInfo = $"Profiling for {TimeSpan.FromSeconds(_profiledFor):mm\\:ss} · averages per second since the start, refreshed every second";
+        OnPropertyChanged(nameof(HasProfile));
+    }
+
+    /// <summary>Updates the rows in place. Entries the addon did not send this time (out of its top list) keep their last numbers.</summary>
+    private void Merge(ObservableCollection<ProfileRow> target, JsonElement m, string name)
+    {
         if (!m.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array) return;
+        if (!_rows.TryGetValue(target, out var byKey)) _rows[target] = byKey = new Dictionary<string, ProfileRow>();
         foreach (var e in arr.EnumerateArray())
-            target.Add(new ProfileRow(Str(e, "k") ?? "?", Num0(e, "ms"), Num0(e, "n"), Num0(e, "max"), Num0(e, "b"), Str(e, "src")));
+        {
+            var key = Str(e, "k") ?? "?";
+            if (!byKey.TryGetValue(key, out var row))
+            {
+                row = new ProfileRow(key, Str(e, "src"));
+                byKey[key] = row;
+                target.Add(row);
+            }
+            row.MsPerSec = Num0(e, "ms");
+            row.CallsPerSec = Num0(e, "n");
+            row.MaxMs = Num0(e, "max");
+            row.BytesPerSec = Num0(e, "b");
+        }
     }
 
     internal static string? Str(JsonElement e, string name) =>
