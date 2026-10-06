@@ -69,8 +69,8 @@ data instead.
     `_restart` (for the journal) and pass every call on unchanged. Anti-backdoor or anti-cheat addons
     that compare these functions with the originals see a Lua function there, and code that kept
     the originals before BetterConsole's addon loaded is not noticed;
-  - while profiling: hooks, `net.Receive` handlers and `net.Start` / `net.Send*` are wrapped, and put
-    back when it stops.
+  - while profiling or capturing lag spikes: hooks, `net.Receive` handlers and `net.Start` /
+    `net.Send*` are wrapped, and put back when it stops.
 
 ## Messages
 
@@ -81,7 +81,8 @@ One JSON object per line, with its type in `t`.
 | `t` | When | Fields |
 |---|---|---|
 | `hello` | after (re)connecting | `addon`, `module`, `gmod`, `branch`, `map`, `gamemode`, `hostname`, `maxplayers`, `tickrate` |
-| `stats` | every second | `fps`, `ft` / `ftmax` / `ftsd` (frame time avg / max / deviation, ms), `busy` / `busymax` (CPU ms per frame), `load` (%), `tps`, `tickrate`, `players`, `bots`, `maxplayers`, `ents`, `edicts`, `lua` (KB), `netin` / `netout` (bytes/s), `map`, `uptime`, `spikes` |
+| `stats` | every second | `st` (`SysTime()` when sent), `fps`, `ft` / `ftmax` / `ftsd` (frame time avg / max / deviation, ms), `busy` / `busymax` (CPU ms per frame), `load` (%), `tps`, `tickrate`, `players`, `bots`, `maxplayers`, `ents`, `edicts`, `lua` (KB), `netin` / `netout` (bytes/s), `map`, `uptime`, `spikes`: frames longer than three ticks with `ms`, `busy`, `time`, `st` (`SysTime()` of the next frame), `phys` (ms), `heap` / `gc` (MB), `ents` (change), `joined`, `start`, the slowest `timer` (`k`, `ms`, `src`), with the capture on `cbs` (`kind`, `k`, `ms`, `n`, `b`, `src`, `who`) |
+| `capture_state` | after `capture` | `on` |
 | `players` | every 1–2 s | `list` of `uid`, `name`, `sid`, `sid64`, `bot`, `ip`, `ping`, `loss`, `choke`, `in`, `out`, `fps`, `time`, `group`, `team`, `frags`, `deaths`, `load`, ULX `ulxid` / `gagged` / `muted` / `jailed`; `ulx`, `groups` (highest first), `ranks` (group → how many groups it inherits from, ULX or CAMI), `load` (measured?) |
 | `quitcmd` | Lua ran `quit`, `exit` or `_restart` | `cmd`, `ply` (`name`, `sid`: the player in whose call it ran), `src` (where in the code), `via`; the reason in the journal if the server exits right after |
 | `err` | on a Lua error (repeats at most once a second, with `n`) | `realm` (`server` / `client`), `msg`, `stack` (`fn`, `src`, `line`), `addon`, `wsid`, `ply`, `n`, `time` |
@@ -97,6 +98,7 @@ One JSON object per line, with its type in `t`.
 | `cmds`, `cvals` (`names`) | command catalog, current values |
 | `sub` (`players`) | the Players tab is open / closed (per-player load measuring) |
 | `prof` (`on`) | start / stop the profiler |
+| `capture` (`on`) | start / stop the detailed capture of lag spikes (the app also types `vprof_on` / `vprof_dump_spikes` itself) |
 | `action` (`tab`, `widget`, `id`) | a button of an addon tab was pressed |
 | `exec` (`cmd`) | run a long command through the engine |
 | `setgroup` (`sid`, `uid`, `group`) | set a group without ULX |

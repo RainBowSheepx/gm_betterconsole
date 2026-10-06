@@ -53,8 +53,8 @@ public static class ScrollChain
 
     private static T? FindParent<T>(DependencyObject? node) where T : DependencyObject
     {
-        node = node == null ? null : VisualTreeHelper.GetParent(node);
-        while (node != null && node is not T) node = VisualTreeHelper.GetParent(node);
+        node = node == null ? null : TreeWalk.Parent(node);
+        while (node != null && node is not T) node = TreeWalk.Parent(node);
         return node as T;
     }
 }

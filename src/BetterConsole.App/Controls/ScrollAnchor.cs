@@ -122,7 +122,7 @@ public static class ScrollAnchor
 
     private static bool IsDescendant(DependencyObject root, DependencyObject node)
     {
-        for (var cur = node; cur != null; cur = VisualTreeHelper.GetParent(cur))
+        for (var cur = node; cur != null; cur = TreeWalk.Parent(cur))
             if (cur == root) return true;
         return false;
     }

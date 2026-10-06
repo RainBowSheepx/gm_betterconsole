@@ -105,19 +105,11 @@ public sealed class PromptDialog : Window
     }
 
     /// <summary>Who the action is for: the Steam avatar (or the coloured initial), the name and the SteamID.</summary>
-    public PromptDialog Player(string name, string steamId, ImageSource? avatar)
+    public PromptDialog Player(string name, string steamId, ImageSource? avatar, bool bot = false)
     {
         var row = new DockPanel { Margin = new Thickness(0, 0, 0, 14) };
-        var face = new Grid { Width = 34, Height = 34, Margin = new Thickness(0, 0, 10, 0) };
-        var circle = new Border { CornerRadius = new CornerRadius(17), Background = (Brush)new NameToColorConverter().Convert(name, typeof(Brush), null!, System.Globalization.CultureInfo.CurrentCulture) };
-        circle.Child = new TextBlock
-        {
-            Text = (string)new InitialConverter().Convert(name, typeof(string), null!, System.Globalization.CultureInfo.CurrentCulture),
-            Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = 15,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-        };
-        face.Children.Add(circle);
-        if (avatar != null) face.Children.Add(new System.Windows.Shapes.Ellipse { Fill = new ImageBrush(avatar) { Stretch = Stretch.UniformToFill } });
+        var face = Face(name, avatar, bot, 34);
+        face.Margin = new Thickness(0, 0, 10, 0);
         row.Children.Add(face);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -130,6 +122,54 @@ public sealed class PromptDialog : Window
         row.Children.Add(text);
         _fields.Children.Insert(0, row);
         return this;
+    }
+
+    /// <summary>The players the action is for: one as <see cref="Player"/>, several as a row of faces and their names.</summary>
+    public PromptDialog Players(IReadOnlyList<(string Name, string SteamId, ImageSource? Avatar, bool Bot)> players)
+    {
+        if (players.Count == 1) return Player(players[0].Name, players[0].SteamId, players[0].Avatar, players[0].Bot);
+        var row = new DockPanel { Margin = new Thickness(0, 0, 0, 14) };
+        var faces = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+        foreach (var (p, i) in players.Take(5).Select((p, i) => (p, i)))
+        {
+            // Overlapping, each with a ring of the dialog's colour.
+            var ring = new Border { CornerRadius = new CornerRadius(17), BorderThickness = new Thickness(2), Child = Face(p.Name, p.Avatar, p.Bot, 30),
+                Margin = new Thickness(i == 0 ? 0 : -10, 0, 0, 0) };
+            ring.SetResourceReference(Border.BorderBrushProperty, "Brush.Panel");
+            Panel.SetZIndex(ring, 5 - i);
+            faces.Children.Add(ring);
+        }
+        row.Children.Add(faces);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = $"{players.Count} players", FontWeight = FontWeights.SemiBold });
+        var names = new TextBlock { Text = string.Join(", ", players.Select(p => p.Name)), FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxHeight = 52, TextTrimming = TextTrimming.CharacterEllipsis };
+        names.SetResourceReference(TextBlock.ForegroundProperty, "Brush.TextSecondary");
+        text.Children.Add(names);
+        row.Children.Add(text);
+        _fields.Children.Insert(0, row);
+        return this;
+    }
+
+    /// <summary>The Steam avatar over the coloured initial (a robot for bots), as in the Players table.</summary>
+    private static Grid Face(string name, ImageSource? avatar, bool bot, double size)
+    {
+        var face = new Grid { Width = size, Height = size };
+        var circle = new Border { CornerRadius = new CornerRadius(size / 2), Background = (Brush)new NameToColorConverter().Convert(name, typeof(Brush), null!, System.Globalization.CultureInfo.CurrentCulture) };
+        circle.Child = bot
+            ? new TextBlock
+            {
+                Text = "", FontFamily = (FontFamily)Application.Current.Resources["Font.Icons"], Foreground = Brushes.White, FontSize = Math.Round(size * 0.5),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            }
+            : new TextBlock
+            {
+                Text = (string)new InitialConverter().Convert(name, typeof(string), null!, System.Globalization.CultureInfo.CurrentCulture),
+                Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = Math.Round(size * 0.44),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            };
+        face.Children.Add(circle);
+        if (avatar != null) face.Children.Add(new System.Windows.Shapes.Ellipse { Fill = new ImageBrush(avatar) { Stretch = Stretch.UniformToFill } });
+        return face;
     }
 
     public PromptDialog Note(string text)

@@ -21,7 +21,8 @@ namespace BetterConsole.App.ViewModels;
 /// </summary>
 public sealed partial class ServerViewModel : ObservableObject
 {
-    private readonly ConcurrentQueue<(string Type, JsonElement Msg)> _bridgeQueue = new();
+    private readonly ConcurrentQueue<(string Type, JsonElement Msg, DateTime At)> _bridgeQueue = new();
+    private DateTime _bridgeAt;   // when the message being handled came off the pipe
     private readonly ConcurrentQueue<ConsoleEvent> _appLines = new();
     private readonly ConcurrentQueue<Action> _uiActions = new();
     private readonly DispatcherTimer _pump;
@@ -58,7 +59,7 @@ public sealed partial class ServerViewModel : ObservableObject
             new ConsoleLine { Text = text, Time = DateTime.Now, Kind = ConsoleLineKind.Command }));
         Controller.Sampled += s => _uiActions.Enqueue(() => OnProcessSample(s));
         Controller.Bridge.ConnectionChanged += c => _uiActions.Enqueue(() => OnBridgeConnection(c));
-        Controller.Bridge.MessageReceived += (t, m) => _bridgeQueue.Enqueue((t, m));
+        Controller.Bridge.MessageReceived += (t, m) => _bridgeQueue.Enqueue((t, m, DateTime.Now));
 
         ServerErrors.MaxItems = Settings.MaxErrorsPerList;
         ClientErrors.MaxItemsPerPlayer = Math.Max(50, Settings.MaxErrorsPerList / 2);
@@ -345,6 +346,7 @@ public sealed partial class ServerViewModel : ObservableObject
         text = text.Trim();
         if (text.Length == 0) return true;
         if (remember) History.Add(text);
+        if ((Stats.Capture || Controller.Pipeline.CaptureVprof) && text.Split(';').Any(c => c.TrimStart().StartsWith("vprof", StringComparison.OrdinalIgnoreCase))) PauseVprofCapture();
         if (!Controller.SendCommand(text, out var problem))
         {
             WriteAppLine(problem ?? "The command could not be sent.", true);
@@ -502,6 +504,9 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             switch (e)
             {
+                case VprofCaptured vc:
+                    OnVprof(vc);
+                    break;
                 case ErrorRecognized er:
                     OnTextError(er.Error);
                     break;
@@ -536,6 +541,7 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             try
             {
+                _bridgeAt = m.At;
                 HandleBridge(m.Type, m.Msg);
                 BridgeMessage?.Invoke(m.Type, m.Msg);
             }
@@ -619,6 +625,8 @@ public sealed partial class ServerViewModel : ObservableObject
         {
             case "hello":
                 _helloReceived = true;
+                _clockSamples.Clear();   // a new server process: a new SysTime
+                _clockOffset = double.NaN;
                 BridgeText = "Addon: on";
                 BridgeTooltip = $"Companion addon {StatsVm.Str(m, "addon")}, module {StatsVm.Str(m, "module")}\n" +
                                 $"Garry's Mod {StatsVm.Str(m, "gmod")} ({StatsVm.Str(m, "branch")}), {StatsVm.Str(m, "gamemode")} on {StatsVm.Str(m, "map")}";
@@ -631,6 +639,8 @@ public sealed partial class ServerViewModel : ObservableObject
                 var tr = StatsVm.Num(m, "tickrate");
                 if (!double.IsNaN(tr)) Stats.TickRate = tr;
                 SendPlayerSubscription();
+                // A new Lua state (map change, restart) knows nothing of the capture.
+                if (Stats.Capture) ApplyCapture();
                 // Addons are still loading right after the connection: ask for the command list a bit later.
                 var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
                 t.Tick += (_, _) => { t.Stop(); if (BridgeConnected) Request("cmds"); };
@@ -701,7 +711,7 @@ public sealed partial class ServerViewModel : ObservableObject
 
     /// <summary>For the UI script runner: a message as if the addon had sent it.</summary>
     public void InjectBridgeMessage(string type, string json) =>
-        _bridgeQueue.Enqueue((type, JsonDocument.Parse(json).RootElement.Clone()));
+        _bridgeQueue.Enqueue((type, JsonDocument.Parse(json).RootElement.Clone(), DateTime.Now));
 
     /// <summary>
     /// Lua ran "quit" / "_restart" (ulx rcon, a restart addon, a chat command): who and from where, for
@@ -886,17 +896,23 @@ public sealed partial class ServerViewModel : ObservableObject
         Stats.NetText = double.IsNaN(netin) ? "—" : $"{netin / 1024:F1} / {netout / 1024:F1}";
         Stats.NetSub = "KB/s in / out";
 
+        SampleClock(m);
         if (m.TryGetProperty("spikes", out var spikes) && spikes.ValueKind == JsonValueKind.Array)
         {
             foreach (var s in spikes.EnumerateArray())
             {
-                var t = StatsVm.Num(s, "time");
-                var b = StatsVm.Num(s, "busy");
-                Stats.Spikes.Insert(0, new SpikeRow(double.IsNaN(t) ? DateTime.Now : DateTimeOffset.FromUnixTimeSeconds((long)t).LocalDateTime,
-                    StatsVm.Num0(s, "ms"), double.IsNaN(b) ? null : b));
+                SpikeRow row;
+                try { row = SpikeRow.From(s, _clockOffset); }
+                catch (Exception ex)
+                {
+                    Log.Write("spike: " + ex.Message);
+                    continue;
+                }
+                Stats.Spikes.Insert(0, row);
             }
             while (Stats.Spikes.Count > 100) Stats.Spikes.RemoveAt(Stats.Spikes.Count - 1);
         }
+        if (_vprofPending.Count > 0) MatchPending(_bridgeAt);
 
         MapText = StatsVm.Str(m, "map") ?? MapText;
         SvText = $"{fps:F1} fps ±{ftsd:F1} ms";
@@ -976,6 +992,161 @@ public sealed partial class ServerViewModel : ObservableObject
         };
         Latest = snap;
         SnapshotUpdated?.Invoke(snap);
+    }
+
+    // ------------------------------------------------------------------------------ detailed capture of lag spikes
+
+    // Reports of the engine profiler not matched to a spike yet (they come through the console, the spikes
+    // with the next summary of the addon).
+    private readonly List<(DateTime At, VprofReport Report)> _vprofPending = new();
+
+    /// <summary>
+    /// Detailed capture: the addon times every hook, timer and net message per frame and names the slowest
+    /// of each long frame; the engine profiler (vprof) reports what the engine did in it.
+    /// </summary>
+    public void SetCapture(bool on)
+    {
+        if (on && !BridgeConnected)
+        {
+            Notify("The companion addon is not connected.", NotifyKind.Warning);
+            Stats.Capture = false;
+            return;
+        }
+        Stats.Capture = on;
+        ApplyCapture();
+        if (on) Controller.Pipeline.CaptureVprof = _vprofPause == null;
+        else
+        {
+            _vprofPending.Clear();
+            // The engine stops a moment later, when it reads "vprof_dump_spikes 0": its reports until then
+            // still stay out of the console (and are dropped).
+            _vprofOff?.Stop();
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            t.Tick += (_, _) =>
+            {
+                t.Stop();
+                if (_vprofOff != t) return;
+                _vprofOff = null;
+                if (!Stats.Capture) Controller.Pipeline.CaptureVprof = false;
+            };
+            _vprofOff = t;
+            t.Start();
+        }
+    }
+
+    private DispatcherTimer? _vprofOff, _vprofPause;
+
+    /// <summary>
+    /// A vprof command of the user's own while the capture is on (vprof_generate_report …): its report covers one
+    /// frame (the engine starts its profile anew every frame for the spikes) and would be taken for a spike's, its
+    /// file deleted. The console gets vprof's reports for a few seconds instead.
+    /// </summary>
+    private void PauseVprofCapture()
+    {
+        Controller.Pipeline.CaptureVprof = false;
+        _vprofPause?.Stop();
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            if (_vprofPause != t) return;
+            _vprofPause = null;
+            Controller.Pipeline.CaptureVprof = Stats.Capture;
+        };
+        _vprofPause = t;
+        t.Start();
+    }
+
+    /// <summary>Tells the addon and the engine (again after a map change or a restart).</summary>
+    private void ApplyCapture()
+    {
+        if (BridgeConnected) Request("capture", new { on = Stats.Capture });
+        // The engine's part goes through the console: switched off also while the addon is away.
+        if (!IsRunning || Stats.Capture && !BridgeConnected) return;
+        if (Stats.Capture)
+        {
+            // vprof_dump_spikes takes a frame rate: the frames slower than it are reported, the same ones as the addon's spikes.
+            double tick = double.IsNaN(Stats.TickRate) || Stats.TickRate <= 0 ? 33 : Stats.TickRate;
+            double fps = 1000 / Math.Max(3000 / tick, 50);
+            Controller.Pipeline.VprofMinFrameMs = 1000 / fps;
+            Controller.TypeInternal("vprof_on");
+            Controller.TypeInternal("vprof_dump_spikes " + fps.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            Controller.TypeInternal("vprof_dump_spikes 0");
+            Controller.TypeInternal("vprof_off");
+        }
+    }
+
+    private void OnVprof(VprofCaptured v)
+    {
+        // The engine writes every such report to garrysmod/vprof/vprofN.txt as well: those are removed again.
+        if (v.SavedTo is { } rel) DeleteVprofFile(rel);
+        if (v.Report == null || !Stats.Capture) return;
+        // The frame's spike comes with the addon's next summary: matched then.
+        _vprofPending.Add((v.Time, v.Report));
+        _vprofPending.RemoveAll(p => (DateTime.Now - p.At).TotalSeconds > 10);
+    }
+
+    /// <summary>
+    /// After a summary's spikes: the waiting reports from before it go to their rows (VprofMatch). Their own
+    /// spike is in by then (the addon noticed it before the report came), so a report is never handed to an
+    /// earlier spike only because its own had not arrived yet.
+    /// </summary>
+    private void MatchPending(DateTime summaryAt)
+    {
+        double tickMs = double.IsNaN(Stats.TickRate) || Stats.TickRate <= 0 ? 30 : 1000 / Stats.TickRate;
+        for (int i = 0; i < _vprofPending.Count; i++)
+        {
+            var (at, report) = _vprofPending[i];
+            if (at > summaryAt) continue;
+            var rows = Stats.Spikes.Where(r => !r.HasEngine).ToList();
+            int k = VprofMatch.Pick(rows.Select(r => (r.Time, r.Ms, r.IsPrecise)).ToList(), at, report.FrameMs, tickMs, _vprofLatency);
+            if (k < 0) continue;
+            var row = rows[k];
+            row.AttachEngine(report);
+            // How late the console usually is, from the reports that found their frame.
+            if (row.IsPrecise) _vprofLatency = Math.Clamp(0.8 * _vprofLatency + 0.2 * (at - row.Time).TotalSeconds, 0, 0.15);
+            _vprofPending.RemoveAt(i--);
+        }
+    }
+
+    private double _vprofLatency = 0.02;
+
+    // The addon's SysTime on this machine's clock: received minus sent of each summary is the offset plus the
+    // delivery; the least of the last half minute has the shortest delivery in it.
+    private readonly Queue<double> _clockSamples = new();
+    private double _clockOffset = double.NaN;
+
+    private void SampleClock(JsonElement m)
+    {
+        var st = StatsVm.Num(m, "st");
+        if (double.IsNaN(st)) return;
+        _clockSamples.Enqueue(new DateTimeOffset(_bridgeAt).ToUnixTimeMilliseconds() / 1000.0 - st);
+        while (_clockSamples.Count > 30) _clockSamples.Dequeue();
+        _clockOffset = _clockSamples.Min();
+    }
+
+    private void DeleteVprofFile(string relative)
+    {
+        var game = Profile.GameDirectory;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var full = Path.GetFullPath(Path.Combine(game, relative));
+                var dir = Path.GetFullPath(Path.Combine(game, "vprof")) + Path.DirectorySeparatorChar;
+                // Only a report the engine just wrote into garrysmod/vprof.
+                if (!full.StartsWith(dir, StringComparison.OrdinalIgnoreCase) || !Path.GetFileName(full).StartsWith("vprof", StringComparison.OrdinalIgnoreCase)) return;
+                for (int i = 0; i < 10 && !File.Exists(full); i++) await Task.Delay(200);
+                if (File.Exists(full) && (DateTime.Now - File.GetLastWriteTime(full)).TotalSeconds < 60) File.Delete(full);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("vprof file: " + ex.Message);
+            }
+        });
     }
 
     public void SetProfiling(bool on)

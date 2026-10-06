@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using BetterConsole.Core.Errors;
 using BetterConsole.Sdk;
@@ -97,6 +98,100 @@ internal sealed partial class OutputClassifier
     /// <summary>When false, Lua errors stay in the console text (they are still reported).</summary>
     public bool HideErrors { get; set; } = true;
 
+    /// <summary>
+    /// While on (the detailed capture of lag spikes), the engine profiler's reports are taken out of the
+    /// console and handed over as <see cref="VprofCaptured"/>, with the "Saved report to" line after them.
+    /// </summary>
+    public bool CaptureVprof { get; set; }
+
+    /// <summary>The frame length vprof_dump_spikes reports from (ms); reports of shorter frames are left in the console.</summary>
+    public double VprofMinFrameMs { get; set; }
+
+    private List<string>? _vprof;
+    // The first lines of a report, until it says what it covers (shown again when it is not a spike's).
+    private List<(long Id, ConsoleLine Line)>? _vprofHead;
+    private DateTime _vprofSince;
+    private (VprofReport? Report, DateTime At)? _vprofDone;
+
+    [GeneratedRegex(@"^Saved report to ""(?<path>[^""]+)""")]
+    private static partial Regex VprofSaved();
+
+    [GeneratedRegex(@"^(?<n>\d+) frames sampled")]
+    private static partial Regex VprofFrames();
+
+    [GeneratedRegex(@"^Average [\d.]+ fps, (?<ms>[\d.]+) ms per frame")]
+    private static partial Regex VprofAverage();
+
+    private bool VprofLine(long id, ConsoleLine line)
+    {
+        var text = line.Text.TrimEnd();
+        // A report comes in one burst: one still open after seconds lost its END line. Stop hiding the console.
+        if (_vprof != null && (line.Time - _vprofSince).TotalSeconds > 2) (_vprof, _vprofHead) = (null, null);
+        if (_vprof != null)
+        {
+            if (_vprofHead != null)
+            {
+                // vprof_dump_spikes reports one frame, longer than its limit. Anything else is a report somebody
+                // asked for (vprof_generate_report typed, through rcon, from Lua …): it stays in the console, and
+                // so does its file.
+                var fm = VprofFrames().Match(text);
+                var am = VprofAverage().Match(text);
+                bool theirs = fm.Success ? fm.Groups["n"].Value != "1"
+                    : am.Success ? !double.TryParse(am.Groups["ms"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ms) || ms < VprofMinFrameMs * 0.95
+                    : _vprofHead.Count >= 8;
+                if (theirs)
+                {
+                    foreach (var (hid, hl) in _vprofHead)
+                    {
+                        _hidden.Remove(hid);
+                        Show(hid, hl);
+                    }
+                    (_vprof, _vprofHead) = (null, null);
+                    return false;
+                }
+                if (am.Success) _vprofHead = null;
+                else _vprofHead.Add((id, line));
+            }
+            HideAlways(id);
+            if (text == VprofReport.End)
+            {
+                _vprofDone = (VprofReport.Parse(_vprof), line.Time);
+                _vprof = null;
+            }
+            else if (_vprof.Count < 4000) _vprof.Add(text);
+            return true;
+        }
+        if (_vprofDone is { } done)
+        {
+            _vprofDone = null;
+            var m = VprofSaved().Match(text);
+            _emit(new VprofCaptured(done.Report, done.At, m.Success ? m.Groups["path"].Value : null));
+            if (m.Success)
+            {
+                HideAlways(id);
+                return true;
+            }
+        }
+        if (CaptureVprof && text == VprofReport.Begin)
+        {
+            // The engine reports at the end of the frame: right after an error of that frame, whose
+            // lines are all out by then (the classifier still waits a moment for more of them).
+            if (_mode == Mode.InError) FinishError();
+            if (_mode == Mode.AfterError)
+            {
+                EmitFinished();
+                _mode = Mode.Normal;
+            }
+            ReleaseHeldBlank();
+            _vprof = new List<string>();
+            _vprofHead = [(id, line)];
+            _vprofSince = line.Time;
+            HideAlways(id);
+            return true;
+        }
+        return false;
+    }
+
     public void Add(long id, ConsoleLine line, bool isAmend)
     {
         if (isAmend)
@@ -134,12 +229,19 @@ internal sealed partial class OutputClassifier
             Show(hb.Id, hb.Line);
         }
         if (_clientHead != null && (now - _clientHeadAt).TotalMilliseconds > 1000) _clientHead = null;
+        // A report whose "Saved report to" line did not follow.
+        if (_vprofDone is { } vd && (now - vd.At).TotalMilliseconds > 500)
+        {
+            _vprofDone = null;
+            _emit(new VprofCaptured(vd.Report, vd.At, null));
+        }
     }
 
     private DateTime _clientHeadAt;
 
     private void Process(long id, ConsoleLine line)
     {
+        if (VprofLine(id, line)) return;
         string text = line.Text;
         bool blank = string.IsNullOrWhiteSpace(text);
 

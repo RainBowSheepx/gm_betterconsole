@@ -3,6 +3,28 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.2.2 - 2026-10-06
+
+- **Lag spikes say what caused them**: each long frame gets chips for what it was made of — the game
+  thread waiting (no CPU), the slowest timer, the Lua garbage collector, physics, entities created or
+  removed, players joining, a map that just started. **Detailed capture** (a button on the card) adds
+  the frame's slowest hooks, timers and net messages (with size and sender) and the engine's own
+  profile (vprof): where the engine's time went. The engine reports one long frame a second at most;
+  its reports stay out of the console and their files are deleted.
+- **Several players at once** in the Players tab: Ctrl+click, Shift+click, Ctrl+A or *Select all*,
+  then right-click — kick, ban, group, gag, mute, jail and copy work on all of them, with one dialog.
+  Copied names and SteamIDs are separated by spaces.
+- **CPU affinity knows the processor**: its name; performance and efficiency cores in groups of their
+  own with *P-cores* / *E-cores* buttons; cores grouped by their L3 cache on chips with several (two
+  CCDs, X3D); on a VPS or another virtual machine a note on what pinning can and cannot do there.
+- The profiler and the capture now include hooks added after they started within a second (was five).
+- Fixed: a hook, timer or net message that failed with an error was counted with no time by the
+  profiler (and by the lag spikes); it now counts with its time until the error.
+- Fixed: clicking the counter of a client error showed an exception.
+- Fixed: the gag / mute / jail icons in Players were cramped and blurry; they are small chips now.
+- Fixed: the SteamID in the client errors took the whole width of the player's row.
+- Fixed: separators in right-click menus were bright lines in the dark themes.
+
 ## v0.2.1 - 2026-10-06
 
 - Fixed: the console's timestamps could run into the text (no gap after the time, its last digit

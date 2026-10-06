@@ -447,6 +447,9 @@ public partial class ConsoleView : UserControl
         Output.ScrollToVerticalOffset(Math.Max(0, Output.VerticalOffset + lines * Output.TextArea.TextView.DefaultLineHeight));
     }
 
+    /// <summary>For the UI script runner: the whole console text.</summary>
+    public string ScriptText() => _doc.Text;
+
     /// <summary>For the UI script runner: open the search box with a text.</summary>
     public void ScriptFind(string text)
     {
@@ -608,7 +611,7 @@ public partial class ConsoleView : UserControl
 
     private static bool IsDescendant(DependencyObject root, DependencyObject node)
     {
-        for (var cur = node; cur != null; cur = VisualTreeHelper.GetParent(cur) ?? LogicalTreeHelper.GetParent(cur))
+        for (var cur = node; cur != null; cur = Controls.TreeWalk.Parent(cur))
             if (cur == root) return true;
         return false;
     }

@@ -29,6 +29,8 @@ public sealed class ConsolePipeline : IDisposable
     private DateTime _lastData = DateTime.MinValue;
     private volatile bool _resetRequested;
     private volatile bool _hideErrors = true;
+    private volatile bool _captureVprof;
+    private double _vprofMinFrameMs;
 
     public const short Width = 4096;
     public const short Height = 30;
@@ -50,6 +52,20 @@ public sealed class ConsolePipeline : IDisposable
     {
         get => _hideErrors;
         set => _hideErrors = value;
+    }
+
+    /// <summary>Takes the engine profiler's reports out of the console (the detailed capture of lag spikes).</summary>
+    public bool CaptureVprof
+    {
+        get => _captureVprof;
+        set => _captureVprof = value;
+    }
+
+    /// <summary>The frame length vprof_dump_spikes reports from: shorter reports are someone else's (rcon …).</summary>
+    public double VprofMinFrameMs
+    {
+        get => Volatile.Read(ref _vprofMinFrameMs);
+        set => Volatile.Write(ref _vprofMinFrameMs, value);
     }
 
     /// <summary>Feeds raw pty output. Thread safe; copies the data.</summary>
@@ -116,6 +132,8 @@ public sealed class ConsolePipeline : IDisposable
                 CreateState();
             }
             _classifier.HideErrors = _hideErrors;
+            _classifier.CaptureVprof = _captureVprof;
+            _classifier.VprofMinFrameMs = Volatile.Read(ref _vprofMinFrameMs);
 
             if (got)
             {

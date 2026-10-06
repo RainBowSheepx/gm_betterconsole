@@ -38,11 +38,13 @@ public partial class StatsView : UserControl
         s.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(StatsVm.Profiling) or nameof(StatsVm.ProfilingInfo) or nameof(StatsVm.HasProfile)) UpdateProfiler();
-            if (e.PropertyName is nameof(StatsVm.TickRate)) UpdateBudget();
+            if (e.PropertyName is nameof(StatsVm.TickRate)) { UpdateBudget(); UpdateCapture(); }
+            if (e.PropertyName is nameof(StatsVm.Capture)) UpdateCapture();
         };
         void UpdateNoSpikes() => NoSpikes.Visibility = s.Spikes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         s.Spikes.CollectionChanged += (_, _) => UpdateNoSpikes();
         UpdateNoSpikes();
+        UpdateCapture();
         vm.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(ServerViewModel.BridgeConnected)) UpdateNote(); };
         IsVisibleChanged += (_, e) => { if ((bool)e.NewValue) OnUpdated(); };
         UpdateBudget();
@@ -106,6 +108,28 @@ public partial class StatsView : UserControl
     }
 
     private void OnProfile(object sender, RoutedEventArgs e) => _vm.SetProfiling(!_vm.Stats.Profiling);
+
+    private void OnCapture(object sender, RoutedEventArgs e)
+    {
+        _vm.SetCapture(CaptureButton.IsChecked == true);
+        // Refused (no addon): the button goes back to what the capture is.
+        UpdateCapture();
+    }
+
+    private void OnClearSpikes(object sender, RoutedEventArgs e) => _vm.Stats.Spikes.Clear();
+
+    private void UpdateCapture()
+    {
+        var s = _vm.Stats;
+        CaptureButton.IsChecked = s.Capture;
+        CaptureLabel.Text = s.Capture ? "Detailed capture: on" : "Detailed capture";
+        double tick = double.IsNaN(s.TickRate) || s.TickRate <= 0 ? 33 : s.TickRate;
+        double limit = Math.Max(3000 / tick, 50);
+        var longer = 3000 / tick >= 50 ? $"Frames longer than {limit:F0} ms (3 ticks)" : $"Frames longer than {limit:F0} ms";
+        SpikesInfo.Text = s.Capture
+            ? longer + ". Detailed capture is on: each long frame names its slowest hooks, timers and net messages (Lua) and what the engine did in it (vprof; the engine reports one long frame a second at most). It costs 1-3 µs per Lua call: switch it off when done."
+            : longer + ", newest first, with what they were made of: CPU time, Lua collector, physics, entities, players joining, the slowest timer. Detailed capture names the hooks, timers and net messages of each long frame and adds the engine's profile (vprof). Double-click a Lua name to open its file.";
+    }
 
     private void OnWindow(object sender, RoutedEventArgs e)
     {

@@ -23,3 +23,10 @@ public sealed record TitleChanged(string Title) : ConsoleEvent;
 
 /// <summary>A Lua error was recognised in the console text (and removed from the console tab).</summary>
 public sealed record ErrorRecognized(LuaError Error) : ConsoleEvent;
+
+/// <summary>
+/// A report of the engine profiler for a long frame (vprof_dump_spikes) while the detailed capture of lag
+/// spikes is on: taken out of the console tab. <see cref="SavedTo"/> is the file the engine wrote it to
+/// as well (relative to garrysmod), when it said so.
+/// </summary>
+public sealed record VprofCaptured(VprofReport? Report, DateTime Time, string? SavedTo) : ConsoleEvent;

@@ -83,19 +83,23 @@ Everyone on the server, updated every second while the tab is open.
 - **Steam avatars** next to the names (also in the client errors and in the admin dialogs). They come
   from the players' public Steam profiles and are cached for a few days; bots, players whose avatar
   could not be loaded, and *Settings → Players → Show Steam avatars* off show the coloured initial.
-- **Load ms** is the server CPU time spent on that player per tick: processing his movement
-  commands (every `StartCommand` … `FinishMove` hook) and the Lua handlers of the net messages he
-  sends. It is measured only while this tab is open. Yellow above 2.5 % of the tick, red above 6 %.
+- **Load ms** is the server CPU time spent on that player per tick: processing their movement
+  commands (every `StartCommand` … `FinishMove` hook) and the Lua handlers of the net messages they
+  send. It is measured only while this tab is open. Yellow above 2.5 % of the tick, red above 6 %.
 - **FPS** is the frame rate the player's game reports to the server.
 - Icons after the name: gagged (voice), muted (chat), jailed.
+- **Several players** at once: Ctrl+click, Shift+click, Ctrl+A or *Select all*, then right-click one
+  of the selected rows. Every action applies to all of them, with one dialog for all. When only some
+  are gagged (muted, jailed), the menu offers both, each for its part ("Gag (voice) · 2 of 3").
+  Copied names and SteamIDs of several players go on one line, separated by spaces.
 
-**Right-click a player** for:
+**Right-click a player** (or the selection) for:
 
 | Action | With ULX | Without ULX |
 |---|---|---|
 | Kick… (reason) | `ulx kick` | `kickid` |
-| Ban… (duration, reason) | `ulx banid` | `banid` + `writeid` |
-| Set group | `ulx adduserid` / `removeuserid` (saved) | `SetUserGroup` until he leaves |
+| Ban… (duration, reason) | `ulx banid` | `banid` + `writeid` (not bots) |
+| Set group | `ulx adduserid` / `removeuserid` (saved) | `SetUserGroup` until they leave |
 | Gag / Mute / Jail… / Unjail | `ulx gag`, `mute`, `jail` | — |
 | Copy name / SteamID / SteamID64, open Steam profile | | |
 
@@ -109,7 +113,7 @@ name, or names with spaces or Cyrillic, are not a problem.
 Lua errors that happen in players' games (GMod sends them to the server). One row per player, sorted
 by name, all collapsed at first; a red dot marks players with errors you have not opened yet.
 
-- Open a player to see his errors, **the most recent first**. The same error happening again only
+- Open a player to see their errors, **the most recent first**. The same error happening again only
   raises its counter (×12) and its time.
 - The arrow of an error shows its stack trace. Its text can be selected with the mouse and copied
   (clicks into the text do not fold the card), or use the copy button. Lua paths open in the editor
@@ -148,9 +152,31 @@ Both error tabs have a filter box, *Copy all* and *Clear*.
 | **Lua memory** | `collectgarbage("count")` |
 | **Entities** | entity count and edicts out of 8192 (the server crashes when edicts run out) |
 | **Network** | data from / to all clients |
-| **Lag spikes** | frames that took longer than three ticks, with the CPU time inside them: a long frame with little CPU means the thread was waiting (disk, the console, other programs) |
 
 Charts show 1 minute to 1 hour (buttons on the top right); hover them for exact values.
+
+### Lag spikes
+
+![Lag spikes](images/lag-spikes.png)
+
+Every frame longer than three ticks and 50 ms (a hitch players notice), newest first, with its length, the CPU
+time of the game thread in it, and what it was made of:
+
+- **no CPU for X ms**: the thread was waiting for most of the frame — for the disk (a model, a sound
+  or a map file read the first time), for the srcds console window (text selected in it stops the
+  server), or for other programs.
+- **timer …**: the slowest timer of the frame (always measured; it costs next to nothing).
+- **Lua GC freed X MB**: the Lua garbage collector ran in the frame.
+- **physics X ms**, **±N entities** (a dupe pasted, a cleanup), **joined: names**, **map start**.
+
+**Detailed capture** (the button on the card) times every hook, timer and net message of each frame
+and turns on the engine's own profiler (vprof). Each long frame then gets a *Lua* line with its
+slowest callbacks (net messages with their size and sender) and an *Engine* line with where the
+engine's time went: Lua code, physics, entity Think, snapshots to the players, network … The engine
+reports one long frame a second at most, so not every row gets an *Engine* line. Its reports are kept
+out of the console, and the files it writes for them (`garrysmod/vprof/vprofN.txt`) are deleted. The
+capture costs 1–3 microseconds per Lua call: switch it off when you are done. Double-click a Lua name
+to open its file.
 
 ### Lua profiler
 
@@ -235,10 +261,24 @@ not stop a server; rcon from outside and binary modules can.
 ## CPU affinity and priority
 
 `…` → **CPU affinity and priority** (or *Settings → Server → Processors and priority*): tick the
-logical processors srcds may run on — grouped by core, with performance and efficiency cores marked
-on hybrid CPUs — and pick a priority (Idle … High). All processors and Normal are the default.
-Changes apply to the running server at once and on every start. With several servers, the processors
-other servers are pinned to are named under each box: give every busy server a core of its own.
+logical processors srcds may run on, grouped by core, and pick a priority (Idle … High). All
+processors and Normal are the default. Changes apply to the running server at once and on every
+start. With several servers, the processors other servers are pinned to are named under each box:
+give every busy server a core of its own.
+
+The dialog names the processor and shows what Windows knows about its cores:
+
+- **Hybrid CPUs** (Intel since the 12th generation, some AMD laptop chips): performance cores (P) and
+  efficiency cores (E, and LP-E on chips that have them) in groups of their own, with *P-cores* /
+  *E-cores* buttons. Put game servers on P-cores: an E-core is much slower for srcds' single game thread.
+- **Several L3 caches** (Ryzen with two CCDs, such as a 7950X3D): the cores in groups by the cache they
+  share, with its size. Keep a server within one group; on X3D chips the group with the 3D V-Cache is
+  usually the faster one for a game server.
+- **A virtual machine** (a VPS; known by the hypervisor or the firmware: KVM, Hyper-V, VMware …): no
+  groups, only a note. The processors are virtual: the host runs them on whichever real cores it likes,
+  so P/E cores and caches can't be seen from inside, and a shared vCPU can stall while the host serves
+  other machines (it appears among the lag spikes as *no CPU*). Pinning still keeps several servers in
+  the VM apart. Windows with virtualization-based security on real hardware is not taken for a VM.
 
 ![CPU affinity](images/affinity.png)
 

@@ -14,7 +14,7 @@ namespace BetterConsole.App.Views;
 
 /// <summary>
 /// Players on the server: a sortable table (default: time on the server, newest at the bottom),
-/// columns can be hidden, right-click for admin actions (ULX when installed, engine commands otherwise).
+/// columns can be hidden, right-click for admin actions on the selected players (ULX when installed, engine commands otherwise).
 /// </summary>
 public partial class PlayersView : UserControl
 {
@@ -63,6 +63,7 @@ public partial class PlayersView : UserControl
         UlxText.Text = p.HasUlx ? "ULX" : "No ULX: engine commands";
         UlxText.SetResourceReference(TextBlock.ForegroundProperty, p.HasUlx ? "Brush.Success" : "Brush.TextMuted");
         UlxPill.Visibility = p.HasData ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSelection();
         UlxPill.ToolTip = p.HasUlx
             ? "Kick, ban, groups, gag, mute and jail use ULX commands."
             : "ULX is not installed: kick and ban use kickid / banid, groups are set until the player leaves, gag / mute / jail are not available.";
@@ -219,67 +220,161 @@ public partial class PlayersView : UserControl
         return null;
     }
 
+    // ------------------------------------------------------------------------------ selection
+
+    /// <summary>The selected players in the table's order.</summary>
+    private List<PlayerRowVm> Selected()
+    {
+        var set = Grid.SelectedItems.OfType<PlayerRowVm>().ToHashSet();
+        return Grid.Items.OfType<PlayerRowVm>().Where(set.Contains).ToList();
+    }
+
+    private void OnSelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateSelection();
+
+    private void UpdateSelection()
+    {
+        int n = Grid.SelectedItems.Count, all = Grid.Items.Count;
+        SelectionText.Text = n > 1 ? $"{n} selected" : "";
+        SelectionText.Visibility = n > 1 ? Visibility.Visible : Visibility.Collapsed;
+        SelectAllLabel.Text = all > 0 && n == all ? "Clear selection" : "Select all";
+        SelectAllButton.IsEnabled = all > 0;
+    }
+
+    private void OnSelectAll(object sender, RoutedEventArgs e)
+    {
+        if (Grid.Items.Count > 0 && Grid.SelectedItems.Count == Grid.Items.Count) Grid.UnselectAll();
+        else Grid.SelectAll();
+        Grid.Focus();
+    }
+
     // ------------------------------------------------------------------------------ admin actions
 
+    // Every action works on the selection: a right-click on a selected row keeps it, anywhere else selects that row alone.
     private void OnRowRightClick(object sender, MouseButtonEventArgs e)
     {
         var row = ItemsControl.ContainerFromElement(Grid, (DependencyObject)e.OriginalSource) as DataGridRow;
         if (row?.Item is not PlayerRowVm p) return;
-        Grid.SelectedItem = p;
-        var menu = BuildPlayerMenu(p);
+        if (!row.IsSelected) Grid.SelectedItem = p;
+        var menu = BuildPlayerMenu(Selected());
         menu.PlacementTarget = row;
         menu.Placement = PlacementMode.MousePoint;
         menu.IsOpen = true;
         e.Handled = true;
     }
 
-    /// <summary>For the UI script runner: open the menu of the n-th row.</summary>
+    private ContextMenu? _scriptMenu;
+    public ContextMenu? ScriptMenu => _scriptMenu;
+
+    /// <summary>For the UI script runner: open the menu of the n-th row (of the selection, when that row is in it).</summary>
     public void ScriptOpenMenu(int index)
     {
         if (index < 0 || index >= Grid.Items.Count || Grid.Items[index] is not PlayerRowVm p) return;
-        Grid.SelectedItem = p;
+        if (!Grid.SelectedItems.Contains(p)) Grid.SelectedItem = p;
         var row = (DataGridRow?)Grid.ItemContainerGenerator.ContainerFromIndex(index);
-        var menu = BuildPlayerMenu(p);
+        var menu = BuildPlayerMenu(Selected());
         menu.PlacementTarget = row ?? (UIElement)Grid;
         menu.Placement = PlacementMode.Relative;
         menu.HorizontalOffset = 180;
         menu.VerticalOffset = 18;
         menu.IsOpen = true;
+        _scriptMenu = menu;
     }
 
-    private ContextMenu BuildPlayerMenu(PlayerRowVm p)
+    /// <summary>For the UI script runner: "all", "none" or row numbers ("0,2,3").</summary>
+    public void ScriptSelect(string spec)
+    {
+        if (spec == "all") Grid.SelectAll();
+        else
+        {
+            Grid.UnselectAll();
+            if (spec != "none")
+                foreach (var s in spec.Split(','))
+                    if (int.TryParse(s, out var i) && i >= 0 && i < Grid.Items.Count) Grid.SelectedItems.Add(Grid.Items[i]);
+        }
+        Grid.Focus();
+    }
+
+    /// <summary>For the UI script runner: click the item of the open menu whose header starts with the text.</summary>
+    public void ScriptMenuClick(string text)
+    {
+        if (_scriptMenu == null) return;
+        var item = _scriptMenu.Items.OfType<MenuItem>().FirstOrDefault(m => m.Header is string h && h.StartsWith(text, StringComparison.OrdinalIgnoreCase));
+        _scriptMenu.IsOpen = false;
+        _scriptMenu = null;
+        item?.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+    }
+
+    /// <summary>For the UI script runner: the dialog an action would show, for the selection (not modal; nothing is run).</summary>
+    public Window? ScriptDialog(string which)
+    {
+        var ps = Selected();
+        if (ps.Count == 0) return null;
+        return which switch
+        {
+            "kick" => KickDialog(ps),
+            "ban" => BanDialog(ps),
+            "jail" => JailDialog(ps),
+            "group" => GroupDialog(ps, _vm.Players.Groups.FirstOrDefault() ?? "user"),
+            _ => null,
+        };
+    }
+
+    private ContextMenu BuildPlayerMenu(IReadOnlyList<PlayerRowVm> ps)
     {
         bool ulx = _vm.Players.HasUlx;
+        var humans = ps.Where(x => !x.IsBot).ToList();
         var menu = new ContextMenu();
-        var title = new MenuItem { Header = p.Name, IsEnabled = false, FontWeight = FontWeights.SemiBold };
-        if (p.Avatar != null)
-            title.Icon = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Fill = new ImageBrush(p.Avatar) { Stretch = Stretch.UniformToFill } };
+        var title = new MenuItem { Header = ps.Count == 1 ? ps[0].Name : $"{ps.Count} players", IsEnabled = false, FontWeight = FontWeights.SemiBold };
+        if (ps.Count == 1 && ps[0].Avatar is { } av)
+            title.Icon = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Fill = new ImageBrush(av) { Stretch = Stretch.UniformToFill } };
+        else if (ps.Count > 1)
+            title.Icon = new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.Resources["Font.Icons"], FontSize = 14 };
         menu.Items.Add(title);
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Kick…", "", () => Kick(p)));
-        menu.Items.Add(Item("Ban…", "", () => Ban(p), enabled: !p.IsBot || ulx));
+        menu.Items.Add(Item("Kick…", "", () => Kick(ps)));
+        // Without ULX a ban is by SteamID: bots have none.
+        menu.Items.Add(Item("Ban…", "", () => Ban(ps), enabled: humans.Count > 0 || ulx));
         var groups = Item("Set group", "", null);
         foreach (var g in _vm.Players.Groups)
         {
-            var gi = new MenuItem { Header = g, IsCheckable = true, IsChecked = string.Equals(g, p.Group, StringComparison.OrdinalIgnoreCase) };
-            gi.Click += (_, _) => SetGroup(p, g);
+            var gi = new MenuItem { Header = g, IsCheckable = true, IsChecked = humans.Count > 0 && humans.All(x => SameGroup(x, g)) };
+            gi.Click += (_, _) => SetGroup(humans, g);
             groups.Items.Add(gi);
         }
-        groups.IsEnabled = !p.IsBot;
+        groups.IsEnabled = humans.Count > 0;
         menu.Items.Add(groups);
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item(p.Gagged ? "Ungag (voice)" : "Gag (voice)", "", () => Run(p.Gagged ? $"ulx ungag {p.UlxTarget}" : $"ulx gag {p.UlxTarget}"), enabled: ulx));
-        menu.Items.Add(Item(p.Muted ? "Unmute (chat)" : "Mute (chat)", "", () => Run(p.Muted ? $"ulx unmute {p.UlxTarget}" : $"ulx mute {p.UlxTarget}"), enabled: ulx));
-        menu.Items.Add(p.Jailed
-            ? Item("Unjail", "", () => Run($"ulx unjail {p.UlxTarget}"), enabled: ulx)
-            : Item("Jail…", "", () => Jail(p), enabled: ulx));
+        Toggle(menu, ps, x => x.Gagged, "Gag (voice)", "Ungag (voice)", "\uE74F", x => $"ulx gag {x.UlxTarget}", x => $"ulx ungag {x.UlxTarget}", ulx);
+        Toggle(menu, ps, x => x.Muted, "Mute (chat)", "Unmute (chat)", "\uE8BD", x => $"ulx mute {x.UlxTarget}", x => $"ulx unmute {x.UlxTarget}", ulx);
+        var free = ps.Where(x => !x.Jailed).ToList();
+        var jailed = ps.Where(x => x.Jailed).ToList();
+        if (free.Count > 0) menu.Items.Add(Item(Part("Jail…", free, ps), "", () => Jail(free), enabled: ulx));
+        if (jailed.Count > 0) menu.Items.Add(Item(Part("Unjail", jailed, ps), "", () => RunAll(jailed.Select(x => $"ulx unjail {x.UlxTarget}")), enabled: ulx));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Copy name", "", () => Copy(p.Name)));
-        menu.Items.Add(Item("Copy SteamID", "", () => Copy(p.SteamId), enabled: !p.IsBot));
-        menu.Items.Add(Item("Copy SteamID64", "", () => Copy(p.SteamId64), enabled: !p.IsBot && p.SteamId64.Length > 0));
-        menu.Items.Add(Item("Open Steam profile", "", () => Process.Start(new ProcessStartInfo(p.ProfileUrl) { UseShellExecute = true }), enabled: p.ProfileUrl.Length > 0));
+        // Several at once: separated by spaces.
+        menu.Items.Add(Item(ps.Count == 1 ? "Copy name" : "Copy names", "", () => Copy(string.Join(" ", ps.Select(x => x.Name)))));
+        menu.Items.Add(Item(humans.Count > 1 ? "Copy SteamIDs" : "Copy SteamID", "", () => Copy(string.Join(" ", humans.Select(x => x.SteamId))), enabled: humans.Count > 0));
+        var sid64 = humans.Where(x => x.SteamId64.Length > 0).ToList();
+        menu.Items.Add(Item(sid64.Count > 1 ? "Copy SteamID64s" : "Copy SteamID64", "", () => Copy(string.Join(" ", sid64.Select(x => x.SteamId64))), enabled: sid64.Count > 0));
+        var profiles = ps.Where(x => x.ProfileUrl.Length > 0).ToList();
+        menu.Items.Add(Item(profiles.Count > 1 ? "Open Steam profiles" : "Open Steam profile", "", () => OpenProfiles(profiles), enabled: profiles.Count > 0));
         return menu;
     }
+
+    /// <summary>"Gag (voice)" for all of them, or, when some are gagged and some not, both items for their part.</summary>
+    private void Toggle(ContextMenu menu, IReadOnlyList<PlayerRowVm> ps, Func<PlayerRowVm, bool> isOn, string onText, string offText, string icon,
+        Func<PlayerRowVm, string> onCmd, Func<PlayerRowVm, string> offCmd, bool enabled)
+    {
+        var off = ps.Where(x => !isOn(x)).ToList();
+        var on = ps.Where(isOn).ToList();
+        if (off.Count > 0) menu.Items.Add(Item(Part(onText, off, ps), icon, () => RunAll(off.Select(onCmd)), enabled));
+        if (on.Count > 0) menu.Items.Add(Item(Part(offText, on, ps), icon, () => RunAll(on.Select(offCmd)), enabled));
+    }
+
+    private static string Part(string text, IReadOnlyCollection<PlayerRowVm> part, IReadOnlyCollection<PlayerRowVm> all) =>
+        part.Count == all.Count ? text : $"{text} · {part.Count} of {all.Count}";
+
+    private static bool SameGroup(PlayerRowVm p, string group) => string.Equals(group, p.Group, StringComparison.OrdinalIgnoreCase);
 
     private static MenuItem Item(string header, string icon, Action? onClick, bool enabled = true)
     {
@@ -295,9 +390,17 @@ public partial class PlayersView : UserControl
 
     private Window? Owner => Window.GetWindow(this);
 
-    private void Run(string command)
+    /// <summary>The commands one after another; one notice for all of them.</summary>
+    private void RunAll(IEnumerable<string> commands)
     {
-        if (_vm.SendCommand(command)) _vm.Notify("› " + command, NotifyKind.Info);
+        var list = commands.ToList();
+        int sent = 0;
+        foreach (var c in list)
+        {
+            if (!_vm.SendCommand(c)) break;
+            sent++;
+        }
+        if (sent > 0) _vm.Notify("› " + list[0] + (sent > 1 ? $"  (+{sent - 1} more)" : ""), NotifyKind.Info);
     }
 
     private static string Clean(string s) => s.Replace("\"", "'").Replace(";", ",").Replace("\n", " ").Trim();
@@ -307,14 +410,30 @@ public partial class PlayersView : UserControl
         try { Clipboard.SetText(text); } catch { }
     }
 
-    private void Kick(PlayerRowVm p)
+    private void OpenProfiles(IReadOnlyList<PlayerRowVm> ps)
     {
-        var d = new PromptDialog(Owner, "Kick player", $"Disconnects {p.Name} from the server.", "Kick", danger: true)
-            .Player(p.Name, p.SteamId, p.Avatar)
+        if (ps.Count > 5 && !PromptDialog.Confirm(Owner, "Open Steam profiles", $"Open {ps.Count} Steam profiles in the browser?", "Open")) return;
+        foreach (var p in ps)
+        {
+            try { Process.Start(new ProcessStartInfo(p.ProfileUrl) { UseShellExecute = true }); } catch { }
+        }
+    }
+
+    private static List<(string, string, ImageSource?, bool)> Faces(IEnumerable<PlayerRowVm> ps) => ps.Select(p => (p.Name, p.SteamId, (ImageSource?)p.Avatar, p.IsBot)).ToList();
+
+    private static string Who(IReadOnlyList<PlayerRowVm> ps) => ps.Count == 1 ? ps[0].Name : $"these {ps.Count} players";
+
+    private PromptDialog KickDialog(IReadOnlyList<PlayerRowVm> ps) =>
+        new PromptDialog(Owner, ps.Count == 1 ? "Kick player" : $"Kick {ps.Count} players", $"Disconnects {Who(ps)} from the server.", "Kick", danger: true)
+            .Players(Faces(ps))
             .Text("reason", "Reason", "Kicked by the server console");
+
+    private void Kick(IReadOnlyList<PlayerRowVm> ps)
+    {
+        var d = KickDialog(ps);
         if (d.ShowDialog() != true) return;
         var reason = Clean(d["reason"]);
-        Run(_vm.Players.HasUlx ? $"ulx kick {p.UlxTarget} {reason}" : $"kickid {p.UserId} {reason}");
+        RunAll(ps.Select(p => _vm.Players.HasUlx ? $"ulx kick {p.UlxTarget} {reason}" : $"kickid {p.UserId} {reason}"));
     }
 
     private static readonly (string, string)[] BanDurations =
@@ -323,13 +442,26 @@ public partial class PlayersView : UserControl
         ("1 week", "10080"), ("30 days", "43200"), ("Permanent", "0"),
     ];
 
-    private void Ban(PlayerRowVm p)
+    // Without ULX only players with a SteamID can be banned.
+    private List<PlayerRowVm> Bannable(IReadOnlyList<PlayerRowVm> ps) => _vm.Players.HasUlx ? ps.ToList() : ps.Where(p => !p.IsBot).ToList();
+
+    private PromptDialog BanDialog(IReadOnlyList<PlayerRowVm> ps)
     {
-        var d = new PromptDialog(Owner, "Ban player", $"Bans {p.Name} ({p.SteamId}) and disconnects him.", "Ban", danger: true)
-            .Player(p.Name, p.SteamId, p.Avatar)
+        var targets = Bannable(ps);
+        var d = new PromptDialog(Owner, targets.Count == 1 ? "Ban player" : $"Ban {targets.Count} players",
+                targets.Count == 1 ? $"Bans {targets[0].Name} ({targets[0].SteamId}) and disconnects them." : $"Bans {Who(targets)} and disconnects them.", "Ban", danger: true)
+            .Players(Faces(targets))
             .Choice("minutes", "Duration (minutes; you can type your own, 0 = permanent)", BanDurations, "60", editable: true)
             .Text("reason", "Reason", "Banned by the server console");
-        if (!_vm.Players.HasUlx) d.Note("Without ULX the ban goes to the engine's ban list (banid + writeid).");
+        if (!_vm.Players.HasUlx) d.Note("Without ULX the ban goes to the engine's ban list (banid + writeid)" + (targets.Count < ps.Count ? "; bots are left out." : "."));
+        return d;
+    }
+
+    private void Ban(IReadOnlyList<PlayerRowVm> ps)
+    {
+        var targets = Bannable(ps);
+        if (targets.Count == 0) return;
+        var d = BanDialog(ps);
         if (d.ShowDialog() != true) return;
         if (!int.TryParse(d["minutes"].Trim(), out var minutes) || minutes < 0)
         {
@@ -338,28 +470,26 @@ public partial class PlayersView : UserControl
         }
         var reason = Clean(d["reason"]);
         if (_vm.Players.HasUlx)
-        {
-            Run(p.IsBot ? $"ulx ban {p.UlxTarget} {minutes} {reason}" : $"ulx banid \"{p.SteamId}\" {minutes} {reason}");
-        }
+            RunAll(targets.Select(p => p.IsBot ? $"ulx ban {p.UlxTarget} {minutes} {reason}" : $"ulx banid \"{p.SteamId}\" {minutes} {reason}"));
         else
-        {
-            Run($"banid {minutes} {p.SteamId} kick");
-            Run("writeid");
-        }
+            RunAll(targets.Select(p => $"banid {minutes} {p.SteamId} kick").Append("writeid"));
     }
 
-    private void SetGroup(PlayerRowVm p, string group)
+    private PromptDialog GroupDialog(IReadOnlyList<PlayerRowVm> ps, string group) =>
+        new PromptDialog(Owner, "Set group", $"Put {Who(ps)} into the group \"{group}\"?", "Set group").Players(Faces(ps));
+
+    private void SetGroup(IReadOnlyList<PlayerRowVm> humans, string group)
     {
-        if (string.Equals(group, p.Group, StringComparison.OrdinalIgnoreCase)) return;
-        if (new PromptDialog(Owner, "Set group", $"Put {p.Name} into the group \"{group}\"?", "Set group").Player(p.Name, p.SteamId, p.Avatar).ShowDialog() != true) return;
+        var ps = humans.Where(p => !SameGroup(p, group)).ToList();
+        if (ps.Count == 0 || GroupDialog(ps, group).ShowDialog() != true) return;
         if (_vm.Players.HasUlx)
         {
-            Run(group.Equals("user", StringComparison.OrdinalIgnoreCase) ? $"ulx removeuserid \"{p.SteamId}\"" : $"ulx adduserid \"{p.SteamId}\" {group}");
+            RunAll(ps.Select(p => group.Equals("user", StringComparison.OrdinalIgnoreCase) ? $"ulx removeuserid \"{p.SteamId}\"" : $"ulx adduserid \"{p.SteamId}\" {group}"));
         }
         else
         {
-            _vm.Request("setgroup", new { sid = p.SteamId, uid = p.UserId, group });
-            _vm.Notify($"{p.Name} is now in \"{group}\" until he leaves (no ULX to save it).", NotifyKind.Info);
+            foreach (var p in ps) _vm.Request("setgroup", new { sid = p.SteamId, uid = p.UserId, group });
+            _vm.Notify($"{(ps.Count == 1 ? ps[0].Name + " is" : $"{ps.Count} players are")} now in \"{group}\" until they leave (no ULX to save it).", NotifyKind.Info);
         }
     }
 
@@ -368,17 +498,20 @@ public partial class PlayersView : UserControl
         ("30 seconds", "30"), ("1 minute", "60"), ("5 minutes", "300"), ("15 minutes", "900"), ("1 hour", "3600"), ("Until unjailed", "0"),
     ];
 
-    private void Jail(PlayerRowVm p)
-    {
-        var d = new PromptDialog(Owner, "Jail player", $"Puts {p.Name} into a ULX jail where he stands.", "Jail")
-            .Player(p.Name, p.SteamId, p.Avatar)
+    private PromptDialog JailDialog(IReadOnlyList<PlayerRowVm> ps) =>
+        new PromptDialog(Owner, ps.Count == 1 ? "Jail player" : $"Jail {ps.Count} players", $"Puts {Who(ps)} into a ULX jail where they stand.", "Jail")
+            .Players(Faces(ps))
             .Choice("seconds", "Duration (seconds; 0 = until unjailed)", JailDurations, "300", editable: true);
+
+    private void Jail(IReadOnlyList<PlayerRowVm> ps)
+    {
+        var d = JailDialog(ps);
         if (d.ShowDialog() != true) return;
         if (!int.TryParse(d["seconds"].Trim(), out var seconds) || seconds < 0)
         {
             _vm.Notify("The duration must be a number of seconds.", NotifyKind.Warning);
             return;
         }
-        Run($"ulx jail {p.UlxTarget} {seconds}");
+        RunAll(ps.Select(p => $"ulx jail {p.UlxTarget} {seconds}"));
     }
 }

@@ -3,8 +3,9 @@ BetterConsole companion addon - timer detour.
 
 GMod cannot list existing timers, so to know which timer costs how much the timer functions have to be
 wrapped when they are created. timer.Create / timer.Simple / timer.Adjust are detoured here, as early as
-possible (from lua/autorun/!betterconsole.lua). While the profiler is off the wrapper just calls the
-function; while it is on, BetterConsole.Timers.measure(key, fn) times the call.
+possible (from lua/autorun/!betterconsole.lua). While the profiler is off the wrapper calls the function
+and remembers the slowest timer of the frame (for the lag spikes); while it is on,
+BetterConsole.Timers.measure(key, fn) times the call.
 
 Only installed when the server runs under BetterConsole (the loader returns before this otherwise).
 ]]
@@ -61,16 +62,41 @@ end
 
 -- The timer library calls the function without arguments and ignores the result: no varargs here
 -- (a vararg wrapper called from C is noticeably more expensive).
+-- The slowest timer of the current frame (sv_stats.lua names it when the frame turns out long, and
+-- resets it every frame): two SysTime calls per timer call while the profiler is off.
+T.slow, T.slowFn, T.slowKey = 0, nil, nil
+local SysTime = SysTime
+
 local function Wrap(name, fn, simple)
 	if not isfunction(fn) then return fn end
 	local key = not simple and Key(name, fn) or nil
-	return function()
+	local w
+	w = function()
 		local m = T.measure
-		if not m then return fn() end
+		if not m then
+			local t0 = SysTime()
+			-- The timer running now: one that fails never comes back here (see T.Unwound).
+			T.cur, T.curW, T.curT0, T.curKey = fn, w, t0, key
+			fn()
+			T.cur = nil
+			local dt = SysTime() - t0
+			if dt > T.slow then T.slow, T.slowFn, T.slowKey = dt, fn, key end
+			return
+		end
 		key = m(key, fn)
 	end
+	return w
 end
 T.Wrap = Wrap
+
+-- After an error (sv_profiler.lua's P.Unwound): a timer that failed counts with its time until the error.
+-- running: its wrapper is still on the stack (an ErrorNoHalt in it).
+function T.Unwound(running, now, account)
+	if not T.cur or running then return end
+	local dt = now - T.curT0
+	if account and dt > T.slow then T.slow, T.slowFn, T.slowKey = dt, T.cur, T.curKey end
+	T.cur = nil
+end
 
 local create, simple, adjust = timer.Create, timer.Simple, timer.Adjust
 T.origCreate, T.origSimple, T.origAdjust = create, simple, adjust

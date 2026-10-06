@@ -567,6 +567,8 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- Menus give their separators this key instead of the implicit style (else the system's light line) -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator" BasedOn="{StaticResource {x:Type Separator}}" />
 
     <Style TargetType="MenuItem">
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text}" />

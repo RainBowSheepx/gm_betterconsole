@@ -132,6 +132,30 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                 await Task.Delay(400);
                 break;
             }
+            case "select":
+                // select all | none | 0,2,3  (rows of the Players tab)
+                if (Vm.FindTab("players")?.Content is PlayersView spv) spv.ScriptSelect(arg);
+                await Task.Delay(300);
+                break;
+            case "menuclick":
+                // menuclick Copy SteamID  (an item of the menu opened with "menu players n")
+                if (Vm.FindTab("players")?.Content is PlayersView mpv) mpv.ScriptMenuClick(arg);
+                await Task.Delay(500);
+                break;
+            case "shot-menu":
+                // shot-menu path.png  (the menu opened with "menu players n")
+                if (Vm.FindTab("players")?.Content is PlayersView smv && smv.ScriptMenu is { } openMenu && openMenu.ActualWidth > 0)
+                {
+                    using var fs = File.Create(arg);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(Snapshot(openMenu, openMenu.ActualWidth, openMenu.ActualHeight, 1.25)));
+                    enc.Save(fs);
+                }
+                break;
+            case "clipboard":
+                // clipboard path.txt  (what is on the clipboard now)
+                try { File.WriteAllText(arg, Clipboard.ContainsText() ? Clipboard.GetText() : ""); } catch (Exception ex) { Log.Write("ui-script clipboard: " + ex.Message); }
+                break;
             case "settings":
                 if (arg == "close") { _settings?.Close(); _settings = null; }
                 else
@@ -169,6 +193,10 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                 Vm.ClientErrors.IsFrozen = arg == "on";
                 await Task.Delay(100);
                 break;
+            case "capture":
+                Vm.SetCapture(arg == "on");
+                await Task.Delay(500);
+                break;
             case "prof":
                 Vm.SetProfiling(arg == "on");
                 break;
@@ -196,6 +224,10 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                 await Task.Delay(500);
                 break;
             }
+            case "dumpconsole":
+                // dumpconsole path.txt  (the console text of the shown server)
+                if (Console() is { } cv) File.WriteAllText(arg, cv.ScriptText());
+                break;
             case "log":
                 Log.Write("ui-script: " + arg);
                 break;
@@ -205,7 +237,7 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                 {
                     var view = Descendants(tb).FirstOrDefault(d => d.GetType().Name == "TextBoxView") as UIElement;
                     var at = view?.TranslatePoint(new Point(0, 0), tb);
-                    Log.Write($"ui-script: textbox {tb.Name} padding {tb.Padding} text at {at}");
+                    Log.Write($"ui-script: textbox {tb.Name} \"{(tb.Text.Length > 30 ? tb.Text[..30] : tb.Text)}\" width {tb.ActualWidth:F0} padding {tb.Padding} text at {at}");
                 }
                 break;
             // ---- multi-console
@@ -264,7 +296,11 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
                 {
                     "affinity" => new Controls.AffinityDialog(window, Vm.Profile.AffinityMask, Vm.Profile.Priority, shell.MultiServer ? Vm.DisplayName : null,
                         shell.Servers.Where(s => s != Vm).Select(s => (s.DisplayName, s.Profile.AffinityMask)).ToList()),
+                    // dialog affinity-hybrid | affinity-ccd | affinity-vm: as on such a machine
+                    _ when arg.StartsWith("affinity-") => new Controls.AffinityDialog(window, 0b1100, "AboveNormal", "Build server", [("Sandbox #1", 0b11UL)], FakeCpu(arg[9..])),
                     "journal" => new JournalWindow(shell, null) { Owner = window },
+                    // dialog players kick | ban | jail | group  (for the selected players; nothing is run)
+                    _ when arg.StartsWith("players ") && Vm.FindTab("players")?.Content is PlayersView dpv => dpv.ScriptDialog(arg[8..]),
                     _ => null,
                 };
                 _dialog?.Show();
@@ -344,6 +380,34 @@ public sealed class UiScriptRunner(MainWindow window, AppShell shell, string fil
         var enc = new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(rtb));
         enc.Save(fs);
+    }
+
+    /// <summary>Processors of other machines, to look at the affinity dialog on them.</summary>
+    private static BetterConsole.Core.Server.CpuTopology FakeCpu(string kind)
+    {
+        const long MB = 1 << 20;
+        switch (kind)
+        {
+            case "hybrid":
+            {
+                // 8 performance cores with Hyper-Threading, 8 efficiency cores, one L3.
+                var cores = Enumerable.Range(0, 8).Select(i => (3UL << (2 * i), 1)).Concat(Enumerable.Range(0, 8).Select(i => (1UL << (16 + i), 0))).ToList();
+                return BetterConsole.Core.Server.ProcessTuning.Build("Intel(R) Core(TM) i7-13700K", cores, [(3, 0, 30 * MB, 0xFFFFFFUL)], 0xFFFFFFUL);
+            }
+            case "ccd":
+            {
+                // Two CCDs, the first with the stacked cache.
+                var cores = Enumerable.Range(0, 16).Select(i => (3UL << (2 * i), 0)).ToList();
+                return BetterConsole.Core.Server.ProcessTuning.Build("AMD Ryzen 9 7950X3D 16-Core Processor", cores, [(3, 0, 96 * MB, 0xFFFFUL), (3, 0, 32 * MB, 0xFFFF0000UL)], 0xFFFFFFFFUL);
+            }
+            default:
+            {
+                // A VPS: a core and an L3 per vCPU, as KVM often shows them.
+                var cores = Enumerable.Range(0, 4).Select(i => (1UL << i, 0)).ToList();
+                var caches = Enumerable.Range(0, 4).Select(i => (3, 0, 16 * MB, 1UL << i)).ToList();
+                return BetterConsole.Core.Server.ProcessTuning.Build("Common KVM processor", cores, caches, 0xFUL) with { Hypervisor = "KVM" };
+            }
+        }
     }
 
     /// <summary>

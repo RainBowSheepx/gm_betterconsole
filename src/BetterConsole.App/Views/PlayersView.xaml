@@ -12,6 +12,13 @@
                 <Border x:Name="UlxPill" Style="{StaticResource Pill}" Margin="0,0,8,0" Padding="9,3" VerticalAlignment="Center">
                     <TextBlock x:Name="UlxText" FontSize="11.5" />
                 </Border>
+                <Button x:Name="SelectAllButton" Style="{StaticResource Btn.Ghost}" Click="OnSelectAll" Margin="0,0,6,0"
+                        ToolTip="Select every player (also Ctrl+A, Ctrl+click, Shift+click); right-click the selection for actions on all of them">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8B3;" FontSize="13" />
+                        <TextBlock x:Name="SelectAllLabel" Text="Select all" Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
                 <Button Style="{StaticResource Btn.Ghost}" Click="OnColumnsClick" ToolTip="Choose the columns (also: right-click a column header)">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE71D;" FontSize="13" />
@@ -24,6 +31,7 @@
                 <Border Style="{StaticResource Pill}" Margin="10,0,0,0" Background="{DynamicResource Brush.AccentSoft}" Padding="9,2">
                     <TextBlock x:Name="CountText" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" />
                 </Border>
+                <TextBlock x:Name="SelectionText" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource Brush.Accent}" Visibility="Collapsed" />
                 <TextBlock x:Name="Hint" Margin="14,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" FontSize="12" />
             </StackPanel>
         </DockPanel>
@@ -31,7 +39,7 @@
         <Border Grid.Row="1" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1"
                 CornerRadius="{StaticResource Radius.Large}" Padding="6,4">
             <Grid>
-                <DataGrid x:Name="Grid" Sorting="OnSorting" MouseRightButtonUp="OnRowRightClick" CanUserReorderColumns="True" CanUserSortColumns="True"
+                <DataGrid x:Name="Grid" Sorting="OnSorting" MouseRightButtonUp="OnRowRightClick" SelectionChanged="OnSelectionChanged" SelectionMode="Extended" CanUserReorderColumns="True" CanUserSortColumns="True"
                           CanUserResizeColumns="True">
                     <DataGrid.Columns>
                         <DataGridTemplateColumn Header="Nick" SortMemberPath="Name" Width="2*" MinWidth="140">
@@ -59,12 +67,24 @@
                                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="  BOT" VerticalAlignment="Center" FontSize="10.5" Foreground="{DynamicResource Brush.TextMuted}"
                                                    Visibility="{Binding IsBot, Converter={StaticResource BoolToVisibility}}" />
-                                        <TextBlock Text=" &#xE74F;" FontFamily="{StaticResource Font.Icons}" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Warning}"
-                                                   ToolTip="Gagged (voice)" Visibility="{Binding Gagged, Converter={StaticResource BoolToVisibility}}" />
-                                        <TextBlock Text=" &#xE8BD;" FontFamily="{StaticResource Font.Icons}" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Warning}"
-                                                   ToolTip="Muted (chat)" Visibility="{Binding Muted, Converter={StaticResource BoolToVisibility}}" />
-                                        <TextBlock Text=" &#xE72E;" FontFamily="{StaticResource Font.Icons}" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource Brush.Danger}"
-                                                   ToolTip="Jailed" Visibility="{Binding Jailed, Converter={StaticResource BoolToVisibility}}" />
+                                        <!-- gagged / muted / jailed: small chips with some room after the name and between them -->
+                                        <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <Border CornerRadius="4" Padding="5,2" Margin="0,0,4,0" Background="{DynamicResource Brush.WarningSoft}" SnapsToDevicePixels="True"
+                                                    ToolTip="Gagged (voice)" Visibility="{Binding Gagged, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="&#xE74F;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Warning}"
+                                                           TextOptions.TextRenderingMode="Grayscale" />
+                                            </Border>
+                                            <Border CornerRadius="4" Padding="5,2" Margin="0,0,4,0" Background="{DynamicResource Brush.WarningSoft}" SnapsToDevicePixels="True"
+                                                    ToolTip="Muted (chat)" Visibility="{Binding Muted, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="&#xE8BD;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Warning}"
+                                                           TextOptions.TextRenderingMode="Grayscale" />
+                                            </Border>
+                                            <Border CornerRadius="4" Padding="5,2" Margin="0,0,4,0" Background="{DynamicResource Brush.DangerSoft}" SnapsToDevicePixels="True"
+                                                    ToolTip="Jailed" Visibility="{Binding Jailed, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="&#xE72E;" FontFamily="{StaticResource Font.Icons}" FontSize="12" Foreground="{DynamicResource Brush.Danger}"
+                                                           TextOptions.TextRenderingMode="Grayscale" />
+                                            </Border>
+                                        </StackPanel>
                                     </StackPanel>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>

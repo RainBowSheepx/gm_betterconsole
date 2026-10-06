@@ -76,7 +76,7 @@ public partial class ClientErrorsView : UserControl
 
     private static TextBox? FindTextBox(DependencyObject node)
     {
-        for (DependencyObject? cur = node; cur != null; cur = System.Windows.Media.VisualTreeHelper.GetParent(cur))
+        for (DependencyObject? cur = node; cur != null; cur = TreeWalk.Parent(cur))
             if (cur is TextBox tb) return tb;
         return null;
     }

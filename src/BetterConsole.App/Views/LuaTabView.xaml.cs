@@ -65,7 +65,7 @@ public partial class LuaTabView : UserControl
 
     private static ButtonsWidgetVm? FindWidget(DependencyObject d)
     {
-        for (var cur = d; cur != null; cur = System.Windows.Media.VisualTreeHelper.GetParent(cur))
+        for (var cur = d; cur != null; cur = TreeWalk.Parent(cur))
             if (cur is FrameworkElement { DataContext: ButtonsWidgetVm w }) return w;
         return null;
     }

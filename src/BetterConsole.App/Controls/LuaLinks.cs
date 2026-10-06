@@ -98,5 +98,5 @@ public static class LuaLinks
     private static List<LuaLink> Links(string text) => Scanned.GetValue(text, LuaFileResolver.Scan);
 
     private static DependencyObject? Parent(DependencyObject d) =>
-        d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+        TreeWalk.Parent(d);
 }

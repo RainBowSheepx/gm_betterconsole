@@ -38,16 +38,18 @@ in your server or its addons.
   commands Lua refuses to run, go straight to the engine.
 - **Players** tab: a sortable table with Steam avatars (time on the server, newest at the bottom,
   ping, loss, fps, the server CPU each player costs, groups by rank …) with columns you can hide,
-  resize and move. Right-click a player to kick, ban, set a group, gag, mute or jail — ULX
-  compatible, with a dialog for the reason and duration.
+  resize and move. Right-click a player, or several selected ones, to kick, ban, set a group, gag,
+  mute or jail — ULX compatible, with a dialog for the reason and duration.
 - **Client Lua errors** grouped by player, newest first; **server Lua errors** oldest first. Same
   errors are counted instead of repeated, the arrow shows the stack trace, text can be selected, a
   double-click on a Lua path opens the file at its line in your editor (VS Code, Notepad++ …), and
   the lists never jump while you read them.
 - **Statistics**: server FPS and frame time variance, game thread load, tick rate, CPU (the way
-  `stats` computes it), memory, Lua memory, entities and edicts, network, lag spikes — as charts over
-  1 minute to 1 hour — plus an on-demand **Lua profiler** for hooks, timers, net messages and
-  entity classes.
+  `stats` computes it), memory, Lua memory, entities and edicts, network — as charts over 1 minute
+  to 1 hour; **lag spikes** with what each long frame was made of (the slowest timer, the Lua
+  collector, physics; with detailed capture the slowest hooks and net messages too, and the engine's
+  own profiler); an on-demand **Lua profiler** for
+  hooks, timers, net messages and entity classes.
 - **Status bar** with CPU, players, in/out, `sv` fps ± variance, tick, load, entities, Lua and RAM.
 - **Themes**: Dark, Light, Midnight, Graphite — and your own as a small JSON file.
 - **Make it yours**: server addons add tabs, charts, tables, logs, buttons and status items with a

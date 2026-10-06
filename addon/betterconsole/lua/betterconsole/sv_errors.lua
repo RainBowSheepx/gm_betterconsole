@@ -97,6 +97,19 @@ timer.Create("BetterConsole.ErrorRepeats", 1, 0, function()
 end)
 
 hook.Add("OnLuaError", "BetterConsole", function(err, realm, stack, addonTitle, workshopId)
+	-- The profiled calls this error ended get their time until now: as many as its stack has wrappers of
+	-- the profiler (others still waiting were ended earlier by errors a pcall caught).
+	local P = BC.Profiler
+	if P and P.Unwound then
+		local n
+		if istable(stack) then
+			n = 0
+			for _, f in ipairs(stack) do
+				if istable(f) and tostring(f.File or ""):find("betterconsole/sv_profiler.lua", 1, true) then n = n + 1 end
+			end
+		end
+		pcall(P.Unwound, true, n)
+	end
 	if inHandler then return end
 	inHandler = true
 	local ok = pcall(function()
