@@ -9,10 +9,10 @@ namespace BetterConsole.App.Views;
 
 public partial class StatsView : UserControl
 {
-    private readonly MainViewModel _vm;
+    private readonly ServerViewModel _vm;
     private readonly TimeSeriesChart[] _charts;
 
-    public StatsView(MainViewModel vm)
+    public StatsView(ServerViewModel vm)
     {
         _vm = vm;
         InitializeComponent();
@@ -40,8 +40,10 @@ public partial class StatsView : UserControl
             if (e.PropertyName is nameof(StatsVm.Profiling) or nameof(StatsVm.ProfilingInfo) or nameof(StatsVm.HasProfile)) UpdateProfiler();
             if (e.PropertyName is nameof(StatsVm.TickRate)) UpdateBudget();
         };
-        s.Spikes.CollectionChanged += (_, _) => NoSpikes.Visibility = s.Spikes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        vm.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(MainViewModel.BridgeConnected)) UpdateNote(); };
+        void UpdateNoSpikes() => NoSpikes.Visibility = s.Spikes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        s.Spikes.CollectionChanged += (_, _) => UpdateNoSpikes();
+        UpdateNoSpikes();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(ServerViewModel.BridgeConnected)) UpdateNote(); };
         IsVisibleChanged += (_, e) => { if ((bool)e.NewValue) OnUpdated(); };
         UpdateBudget();
         UpdateProfiler();

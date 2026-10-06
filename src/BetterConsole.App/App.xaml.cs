@@ -50,11 +50,7 @@ public partial class App : Application
         ThemeManager.Apply(themes.FirstOrDefault(t => t.Name.Equals(settings.Theme, StringComparison.OrdinalIgnoreCase)) ?? ThemePalette.Dark);
 
         Log.Write($"start {typeof(App).Assembly.GetName().Version}, data {AppSettings.DataDirectory}, profile {profile ?? "(default)"}");
-        var vm = new MainViewModel(settings);
-        var window = new MainWindow(vm);
-        MainWindow = window;
-        window.Show();
-        if (uiScript != null) window.Dispatcher.InvokeAsync(() => new UiScriptRunner(window, vm, uiScript).RunAsync(), DispatcherPriority.ApplicationIdle);
+        new AppShell(settings).Start(uiScript);
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -70,7 +66,8 @@ public partial class App : Application
         e.Handled = true;
         try
         {
-            if (MainWindow?.DataContext is MainViewModel vm) vm.Notify("Internal error: " + e.Exception.Message + " (details in logs\\betterconsole.log)", BetterConsole.Sdk.NotifyKind.Error);
+            var window = Windows.OfType<MainWindow>().FirstOrDefault(w => w.IsActive) ?? MainWindow as MainWindow;
+            window?.ShowToast(null, "Internal error: " + e.Exception.Message + " (details in logs\\betterconsole.log)", BetterConsole.Sdk.NotifyKind.Error);
         }
         catch { }
     }

@@ -36,11 +36,13 @@ in your server or its addons.
   command history across sessions. Client-only commands are left out.
 - **Commands just work**: text with Cyrillic or other non-ASCII characters (`say Привет`), and even
   commands Lua refuses to run, go straight to the engine.
-- **Players** tab: a sortable table (time on the server, newest at the bottom, ping, loss, fps, the
-  server CPU each player costs …) with columns you can hide. Right-click a player to kick, ban, set
-  a group, gag, mute or jail — ULX compatible, with a dialog for the reason and duration.
+- **Players** tab: a sortable table with Steam avatars (time on the server, newest at the bottom,
+  ping, loss, fps, the server CPU each player costs, groups by rank …) with columns you can hide,
+  resize and move. Right-click a player to kick, ban, set a group, gag, mute or jail — ULX
+  compatible, with a dialog for the reason and duration.
 - **Client Lua errors** grouped by player, newest first; **server Lua errors** oldest first. Same
-  errors are counted instead of repeated, a click shows the stack trace, text can be selected, and
+  errors are counted instead of repeated, the arrow shows the stack trace, text can be selected, a
+  double-click on a Lua path opens the file at its line in your editor (VS Code, Notepad++ …), and
   the lists never jump while you read them.
 - **Statistics**: server FPS and frame time variance, game thread load, tick rate, CPU (the way
   `stats` computes it), memory, Lua memory, entities and edicts, network, lag spikes — as charts over
@@ -50,8 +52,11 @@ in your server or its addons.
 - **Themes**: Dark, Light, Midnight, Graphite — and your own as a small JSON file.
 - **Make it yours**: server addons add tabs, charts, tables, logs, buttons and status items with a
   few lines of Lua; C# plugins can add anything.
+- **Several servers in one app** (multi-console): a server list with state, map, players and fps that
+  slides in from the logo, and a window of its own for any server. Settings are shared.
 - **Runs the server for you**: start / stop / restart, crash detection with automatic restart,
-  import of your existing `start.bat`, several servers through profiles.
+  *Always run*, restarts at set times with warnings in the chat, a start / stop journal with the
+  reason of every start and stop, CPU affinity and priority, import of your existing `start.bat`.
 
 ## Screenshots
 
@@ -62,6 +67,8 @@ in your server or its addons.
 | ![Statistics](docs/images/statistics.png) <br> **Statistics** | ![Profiler](docs/images/profiler.png) <br> **Lua profiler** |
 | ![Addon tab](docs/images/addon-tab.png) <br> A **tab made by a server addon** in 60 lines of Lua | ![Light theme](docs/images/theme-light.png) <br> **Light** theme |
 | ![Midnight theme](docs/images/theme-midnight.png) <br> **Midnight** theme | ![Settings](docs/images/settings.png) <br> **Settings** |
+| ![Server list](docs/images/servers.png) <br> **Several servers**: the server list | ![Journal](docs/images/journal.png) <br> **Start / stop journal** with the reasons |
+| ![CPU affinity](docs/images/affinity.png) <br> **CPU affinity** and priority | ![Own window](docs/images/own-window.png) <br> A server in a **window of its own** |
 
 ## Quick start
 

@@ -233,7 +233,7 @@ local sending
 local function WrapReceiver(name, fn)
 	if not isfunction(fn) or ours[fn] then return fn end
 	local key = tostring(name)
-	local src = Src(fn)
+	local src = SrcOf(fn)
 	local w = function(len, ply)
 		if not P.on then return fn(len, ply) end
 		local t0 = SysTime()
@@ -321,6 +321,9 @@ end
 ---------------------------------------------------------------------------
 -- timers (wrapped by sv_timers.lua since start-up)
 ---------------------------------------------------------------------------
+-- Where a timer's function is, for the app (double-click opens it). Looked up once per function.
+local timerSrc = setmetatable({}, { __mode = "k" })
+
 local function MeasureTimer(key, fn)
 	key = key or T.FnName(T.Inner(fn))
 	-- BetterConsole's own timers are not what anybody profiles.
@@ -330,7 +333,13 @@ local function MeasureTimer(key, fn)
 	end
 	local t0 = SysTime()
 	fn()
-	Add("timers", key, SysTime() - t0)
+	local dt = SysTime() - t0
+	local src = timerSrc[fn]
+	if src == nil then
+		src = SrcOf(fn) or false
+		timerSrc[fn] = src
+	end
+	Add("timers", key, dt, nil, src or nil)
 	return key
 end
 

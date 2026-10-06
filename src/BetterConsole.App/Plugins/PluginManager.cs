@@ -17,50 +17,45 @@ public sealed partial class PluginInfo : ObservableObject
     public string Path { get; init; } = "";
     [ObservableProperty] private bool enabled = true;
     [ObservableProperty] private string status = "";
-    internal IConsolePlugin? Instance { get; set; }
+    internal Type? Type { get; set; }
 }
+
+/// <summary>A plugin running for one server.</summary>
+public sealed record PluginInstance(PluginInfo Info, IConsolePlugin Plugin, IDisposable Context);
 
 /// <summary>
 /// Loads plugins from <c>plugins\*\*.dll</c> (one folder per plugin) and <c>plugins\*.dll</c>. Each
 /// plugin gets its own load context, so its dependencies do not clash with the app's; the SDK
-/// assembly is shared so the interfaces match.
+/// assembly is shared so the interfaces match. Every server gets its own instance of each plugin
+/// (with several servers, a plugin's tab appears in each of them).
 /// </summary>
 public sealed class PluginManager
 {
-    private readonly MainViewModel _vm;
-    private readonly Window _window;
-
-    public PluginManager(MainViewModel vm, Window window)
-    {
-        _vm = vm;
-        _window = window;
-    }
-
     public List<PluginInfo> Plugins { get; } = new();
 
-    public void LoadAll()
+    public void LoadAll(AppSettings settings)
     {
-        var root = Path.Combine(AppContext.BaseDirectory, "plugins");
+        var root = System.IO.Path.Combine(AppContext.BaseDirectory, "plugins");
         if (!Directory.Exists(root)) return;
         var files = Directory.EnumerateFiles(root, "*.dll", SearchOption.TopDirectoryOnly)
             .Concat(Directory.EnumerateDirectories(root).SelectMany(d => Directory.EnumerateFiles(d, "*.dll", SearchOption.TopDirectoryOnly)));
         foreach (var file in files)
         {
-            var name = Path.GetFileNameWithoutExtension(file);
+            var name = System.IO.Path.GetFileNameWithoutExtension(file);
             if (name.StartsWith("BetterConsole.Sdk", StringComparison.OrdinalIgnoreCase)) continue;
             // In a plugin folder only the DLL named like the folder (or the only DLL) is the entry.
-            var dir = Path.GetDirectoryName(file)!;
+            var dir = System.IO.Path.GetDirectoryName(file)!;
             if (!string.Equals(dir, root, StringComparison.OrdinalIgnoreCase))
             {
-                var folder = Path.GetFileName(dir);
+                var folder = System.IO.Path.GetFileName(dir);
                 bool single = Directory.GetFiles(dir, "*.dll").Length == 1;
                 if (!single && !string.Equals(name, folder, StringComparison.OrdinalIgnoreCase)) continue;
             }
-            Load(file);
+            Load(file, settings);
         }
     }
 
-    private void Load(string file)
+    private void Load(string file, AppSettings settings)
     {
         try
         {
@@ -69,44 +64,58 @@ public sealed class PluginManager
             var types = asm.GetTypes().Where(t => typeof(IConsolePlugin).IsAssignableFrom(t) && t is { IsAbstract: false, IsInterface: false });
             foreach (var type in types)
             {
-                if (Activator.CreateInstance(type) is not IConsolePlugin plugin) continue;
-                var info = new PluginInfo { Id = plugin.Id, Name = plugin.Name, Description = plugin.Description, Path = file };
+                if (Activator.CreateInstance(type) is not IConsolePlugin probe) continue;
+                var info = new PluginInfo { Id = probe.Id, Name = probe.Name, Description = probe.Description, Path = file, Type = type };
                 Plugins.Add(info);
-                if (_vm.Settings.DisabledPlugins.Contains(plugin.Id))
+                if (settings.DisabledPlugins.Contains(probe.Id))
                 {
                     info.Enabled = false;
                     info.Status = "Disabled";
-                    continue;
+                    info.Type = null;
                 }
-                try
-                {
-                    plugin.Initialize(new PluginContext(plugin.Id, _vm, _window));
-                    info.Instance = plugin;
-                    info.Status = $"Loaded from {Path.GetFileName(file)}";
-                    Log.Write($"plugin {plugin.Id} loaded from {file}");
-                }
-                catch (Exception ex)
-                {
-                    info.Status = "Failed: " + ex.Message;
-                    _vm.WriteAppLine($"Plugin {plugin.Name} failed to start: {ex.Message}", true);
-                    Log.Write($"plugin {plugin.Id} init failed: {ex}");
-                }
+                else info.Status = $"Loaded from {System.IO.Path.GetFileName(file)}";
             }
         }
         catch (Exception ex)
         {
-            _vm.WriteAppLine($"Could not load plugin {Path.GetFileName(file)}: {ex.Message}", true);
+            Plugins.Add(new PluginInfo { Id = file, Name = System.IO.Path.GetFileName(file), Path = file, Status = "Could not load: " + ex.Message, Enabled = false });
             Log.Write($"plugin load {file}: {ex}");
         }
     }
 
-    public void ShutdownAll()
+    /// <summary>Starts every enabled plugin for a server.</summary>
+    public void Attach(ServerViewModel vm)
     {
-        foreach (var p in Plugins)
+        foreach (var info in Plugins)
         {
-            try { p.Instance?.Shutdown(); }
-            catch (Exception ex) { Log.Write($"plugin {p.Id} shutdown: {ex}"); }
+            if (info.Type == null) continue;
+            try
+            {
+                var plugin = (IConsolePlugin)Activator.CreateInstance(info.Type)!;
+                var context = new PluginContext(plugin.Id, vm);
+                plugin.Initialize(context);
+                vm.PluginInstances.Add(new PluginInstance(info, plugin, context));
+                Log.Write($"plugin {info.Id} started for server {vm.Profile.Id}");
+            }
+            catch (Exception ex)
+            {
+                info.Status = "Failed: " + ex.Message;
+                vm.WriteAppLine($"Plugin {info.Name} failed to start: {ex.Message}", true);
+                Log.Write($"plugin {info.Id} init failed: {ex}");
+            }
         }
+    }
+
+    /// <summary>Stops the plugins of a server (it is closed or removed).</summary>
+    public static void Detach(ServerViewModel vm)
+    {
+        foreach (var p in vm.PluginInstances)
+        {
+            try { p.Plugin.Shutdown(); }
+            catch (Exception ex) { Log.Write($"plugin {p.Info.Id} shutdown: {ex}"); }
+            p.Context.Dispose();
+        }
+        vm.PluginInstances.Clear();
     }
 
     private sealed class PluginLoadContext(string mainAssembly) : AssemblyLoadContext(isCollectible: false)
@@ -129,19 +138,27 @@ public sealed class PluginManager
     }
 }
 
-/// <summary>What a plugin sees of the app (all calls on the UI thread).</summary>
-internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, ILuaBridge, IUiHost
+/// <summary>What a plugin sees of the app (all calls on the UI thread): one server and its window.</summary>
+internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, ILuaBridge, IUiHost, IDisposable
 {
     private readonly string _id;
-    private readonly MainViewModel _vm;
-    private readonly Window _window;
+    private readonly ServerViewModel _vm;
+    private readonly Action<Themes.ThemePalette> _themeChanged;
     private bool _reportedFailure;
 
-    public PluginContext(string id, MainViewModel vm, Window window)
+    // After Shutdown the plugin gets no more events (the server is removed or BetterConsole closes).
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Themes.ThemeManager.Changed -= _themeChanged;
+    }
+
+    public PluginContext(string id, ServerViewModel vm)
     {
         _id = id;
         _vm = vm;
-        _window = window;
         vm.ServerStateChanged += (o, n, c) => Raise(StateChanged, new ServerStateChangedEventArgs(o, n, c));
         vm.SnapshotUpdated += s => Raise(SnapshotUpdated, s);
         vm.ConsoleEvents += events =>
@@ -162,7 +179,8 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
             }
             else Raise(MessageReceived, new BridgeMessage(type, msg));
         };
-        Themes.ThemeManager.Changed += t => Raise(ThemeChanged, t.Name);
+        _themeChanged = t => Raise(ThemeChanged, t.Name);
+        Themes.ThemeManager.Changed += _themeChanged;
     }
 
     /// <summary>
@@ -171,7 +189,7 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
     /// </summary>
     private void Raise<T>(EventHandler<T>? handler, T args)
     {
-        if (handler == null) return;
+        if (handler == null || _disposed) return;
         foreach (EventHandler<T> h in handler.GetInvocationList())
         {
             try
@@ -199,7 +217,7 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
     {
         get
         {
-            var dir = Path.Combine(AppSettings.DataDirectory, "plugins-data", string.Join("_", _id.Split(Path.GetInvalidFileNameChars())));
+            var dir = System.IO.Path.Combine(AppSettings.DataDirectory, "plugins-data", string.Join("_", _id.Split(System.IO.Path.GetInvalidFileNameChars())));
             Directory.CreateDirectory(dir);
             return dir;
         }
@@ -211,13 +229,13 @@ internal sealed class PluginContext : IPluginContext, IServer, IConsoleOutput, I
     public ServerState State => _vm.State;
     public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
     public int? ProcessId => _vm.Controller.ProcessId;
-    public string GameDirectory => _vm.Settings.Server.GameDirectory;
+    public string GameDirectory => _vm.Profile.GameDirectory;
     public ServerSnapshot? Latest => _vm.Latest;
     public event EventHandler<ServerSnapshot>? SnapshotUpdated;
-    public void SendCommand(string command) => _vm.SendCommand(command);
-    public Task StartAsync() => _vm.StartAsync();
-    public Task StopAsync() => _vm.StopAsync();
-    public Task RestartAsync() => _vm.RestartAsync();
+    public void SendCommand(string command) => _vm.SendCommand(command, remember: false);
+    public Task StartAsync() => _vm.StartAsync($"Plugin {_id}");
+    public Task StopAsync() => _vm.StopAsync($"Plugin {_id}");
+    public Task RestartAsync() => _vm.RestartAsync($"Plugin {_id}");
 
     // IConsoleOutput
     public event EventHandler<ConsoleLineEventArgs>? LineReceived;

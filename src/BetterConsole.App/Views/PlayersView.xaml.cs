@@ -18,10 +18,10 @@ namespace BetterConsole.App.Views;
 /// </summary>
 public partial class PlayersView : UserControl
 {
-    private readonly MainViewModel _vm;
+    private readonly ServerViewModel _vm;
     private readonly ListCollectionView _view;
 
-    public PlayersView(MainViewModel vm)
+    public PlayersView(ServerViewModel vm)
     {
         _vm = vm;
         InitializeComponent();
@@ -29,17 +29,18 @@ public partial class PlayersView : UserControl
         _view.IsLiveSorting = true;
         Grid.ItemsSource = _view;
 
-        foreach (var col in Grid.Columns)
-        {
-            var name = col.Header as string ?? "";
-            col.Visibility = vm.Settings.PlayerColumnsHidden.Contains(name) ? Visibility.Collapsed : Visibility.Visible;
-        }
+        foreach (var col in Grid.Columns) _defaultWidths[col] = col.Width;
+        RestoreColumns();
         ApplySort(vm.Settings.PlayerSortColumn, vm.Settings.PlayerSortDescending);
+
+        // Width and order go into the settings when BetterConsole saves them (on exit), not on every drag.
+        vm.SavingSettings += StoreColumns;
+        Grid.ColumnReordered += (_, _) => StoreColumns();
 
         Grid.Loaded += (_, _) => HookHeaderMenu();
         vm.Players.PropertyChanged += (_, _) => Refresh();
         vm.Players.Rows.CollectionChanged += (_, _) => Refresh();
-        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(MainViewModel.BridgeConnected)) Refresh(); };
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ServerViewModel.BridgeConnected)) Refresh(); };
         Refresh();
     }
 
@@ -79,6 +80,8 @@ public partial class PlayersView : UserControl
         {
             _view.SortDescriptions.Clear();
             _view.SortDescriptions.Add(new SortDescription(col.SortMemberPath, dir));
+            // The Group column ranks by hierarchy; groups of the same rank by name.
+            if (col.SortMemberPath == nameof(PlayerRowVm.GroupRank)) _view.SortDescriptions.Add(new SortDescription(nameof(PlayerRowVm.Group), ListSortDirection.Ascending));
             // Ties (same time, same ping...) always in the same order.
             _view.SortDescriptions.Add(new SortDescription(nameof(PlayerRowVm.UserId), ListSortDirection.Ascending));
             _view.LiveSortingProperties.Clear();
@@ -90,8 +93,8 @@ public partial class PlayersView : UserControl
     {
         e.Handled = true;
         var header = e.Column.Header as string ?? "Time";
-        // First click on a numeric column sorts the biggest first; "Nick", "SteamID", "Group" A-Z.
-        bool textual = header is "Nick" or "SteamID" or "Group" or "IP" or "Team";
+        // First click on a numeric column (and Group: superadmin first) sorts the biggest first; "Nick", "SteamID" A-Z.
+        bool textual = header is "Nick" or "SteamID" or "IP" or "Team";
         bool desc = e.Column.SortDirection switch
         {
             ListSortDirection.Descending => false,
@@ -104,6 +107,58 @@ public partial class PlayersView : UserControl
     }
 
     // ------------------------------------------------------------------------------ columns
+
+    private readonly Dictionary<DataGridColumn, DataGridLength> _defaultWidths = new();
+    private static readonly DataGridLengthConverter Sizes = new();
+
+    /// <summary>"150", "2.4*", "Auto" back into a width; null when it is not one (a hand-edited file).</summary>
+    private static DataGridLength? ParseWidth(string text)
+    {
+        try
+        {
+            return Sizes.ConvertFromInvariantString(text) is DataGridLength l && (l.IsAuto || l.IsStar || l.IsAbsolute && l.Value is >= 20 and < 3000) ? l : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string NameOf(DataGridColumn col) => col.Header as string ?? "";
+
+    /// <summary>Visibility, width and order of the columns as they were left.</summary>
+    private void RestoreColumns()
+    {
+        var s = _vm.Settings;
+        foreach (var col in Grid.Columns)
+        {
+            var name = NameOf(col);
+            col.Visibility = s.PlayerColumnsHidden.Contains(name) ? Visibility.Collapsed : Visibility.Visible;
+            col.Width = s.PlayerColumnSizes.TryGetValue(name, out var w) && ParseWidth(w) is { } width ? width : _defaultWidths[col];
+        }
+        var order = s.PlayerColumnOrder.Distinct().Select(n => Grid.Columns.FirstOrDefault(c => NameOf(c) == n)).OfType<DataGridColumn>().ToList();
+        // Columns the saved order does not know (a new version added them) go after the others; none saved: the default order.
+        order.AddRange(Grid.Columns.Where(c => !order.Contains(c)));
+        for (int i = 0; i < order.Count; i++) order[i].DisplayIndex = i;
+    }
+
+    /// <summary>Into the settings (written when BetterConsole closes, like the other view settings).</summary>
+    private void StoreColumns()
+    {
+        var s = _vm.Settings;
+        // Only the widths the user changed; the others keep sizing themselves.
+        s.PlayerColumnSizes = Grid.Columns.Where(c => !c.Width.Equals(_defaultWidths[c])).ToDictionary(NameOf, c => Sizes.ConvertToInvariantString(c.Width) ?? "Auto");
+        s.PlayerColumnOrder = Grid.Columns.OrderBy(c => c.DisplayIndex).Select(NameOf).ToList();
+    }
+
+    private void ResetColumns()
+    {
+        var s = _vm.Settings;
+        s.PlayerColumnsHidden = new Services.AppSettings().PlayerColumnsHidden;
+        s.PlayerColumnSizes = new();
+        s.PlayerColumnOrder = new();
+        RestoreColumns();
+    }
 
     private void HookHeaderMenu()
     {
@@ -137,6 +192,10 @@ public partial class PlayersView : UserControl
                 };
                 menu.Items.Add(item);
             }
+            menu.Items.Add(new Separator());
+            var reset = new MenuItem { Header = "Reset columns (visibility, width, order)" };
+            reset.Click += (_, _) => ResetColumns();
+            menu.Items.Add(reset);
         };
         return menu;
     }
@@ -193,6 +252,8 @@ public partial class PlayersView : UserControl
         bool ulx = _vm.Players.HasUlx;
         var menu = new ContextMenu();
         var title = new MenuItem { Header = p.Name, IsEnabled = false, FontWeight = FontWeights.SemiBold };
+        if (p.Avatar != null)
+            title.Icon = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Fill = new ImageBrush(p.Avatar) { Stretch = Stretch.UniformToFill } };
         menu.Items.Add(title);
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Kick…", "", () => Kick(p)));
@@ -249,6 +310,7 @@ public partial class PlayersView : UserControl
     private void Kick(PlayerRowVm p)
     {
         var d = new PromptDialog(Owner, "Kick player", $"Disconnects {p.Name} from the server.", "Kick", danger: true)
+            .Player(p.Name, p.SteamId, p.Avatar)
             .Text("reason", "Reason", "Kicked by the server console");
         if (d.ShowDialog() != true) return;
         var reason = Clean(d["reason"]);
@@ -264,6 +326,7 @@ public partial class PlayersView : UserControl
     private void Ban(PlayerRowVm p)
     {
         var d = new PromptDialog(Owner, "Ban player", $"Bans {p.Name} ({p.SteamId}) and disconnects him.", "Ban", danger: true)
+            .Player(p.Name, p.SteamId, p.Avatar)
             .Choice("minutes", "Duration (minutes; you can type your own, 0 = permanent)", BanDurations, "60", editable: true)
             .Text("reason", "Reason", "Banned by the server console");
         if (!_vm.Players.HasUlx) d.Note("Without ULX the ban goes to the engine's ban list (banid + writeid).");
@@ -288,7 +351,7 @@ public partial class PlayersView : UserControl
     private void SetGroup(PlayerRowVm p, string group)
     {
         if (string.Equals(group, p.Group, StringComparison.OrdinalIgnoreCase)) return;
-        if (!PromptDialog.Confirm(Owner, "Set group", $"Put {p.Name} into the group \"{group}\"?", "Set group")) return;
+        if (new PromptDialog(Owner, "Set group", $"Put {p.Name} into the group \"{group}\"?", "Set group").Player(p.Name, p.SteamId, p.Avatar).ShowDialog() != true) return;
         if (_vm.Players.HasUlx)
         {
             Run(group.Equals("user", StringComparison.OrdinalIgnoreCase) ? $"ulx removeuserid \"{p.SteamId}\"" : $"ulx adduserid \"{p.SteamId}\" {group}");
@@ -308,6 +371,7 @@ public partial class PlayersView : UserControl
     private void Jail(PlayerRowVm p)
     {
         var d = new PromptDialog(Owner, "Jail player", $"Puts {p.Name} into a ULX jail where he stands.", "Jail")
+            .Player(p.Name, p.SteamId, p.Avatar)
             .Choice("seconds", "Duration (seconds; 0 = until unjailed)", JailDurations, "300", editable: true);
         if (d.ShowDialog() != true) return;
         if (!int.TryParse(d["seconds"].Trim(), out var seconds) || seconds < 0)

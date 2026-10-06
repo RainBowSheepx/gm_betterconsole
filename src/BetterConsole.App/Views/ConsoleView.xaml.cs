@@ -27,7 +27,7 @@ public partial class ConsoleView : UserControl
     private const string AppPrefix = "▸ ";
     private const string AppErrorPrefix = "▲ ";
 
-    private readonly MainViewModel _vm;
+    private readonly ServerViewModel _vm;
     private readonly TextDocument _doc;
     private readonly List<LineMeta> _meta = new(32768);
     private readonly ConsoleColorizer _colorizer;
@@ -48,7 +48,7 @@ public partial class ConsoleView : UserControl
     private string _typedBeforeNavigation = "";
     private List<CompletionItem> _suggestions = new();
 
-    public ConsoleView(MainViewModel vm)
+    public ConsoleView(ServerViewModel vm)
     {
         _vm = vm;
         InitializeComponent();
@@ -178,6 +178,8 @@ public partial class ConsoleView : UserControl
         string prefix = line.Kind switch
         {
             ConsoleLineKind.Command => CommandPrefix,
+            // A long notice broken into lines: its next lines are indented instead of marked again.
+            ConsoleLineKind.App or ConsoleLineKind.AppError when line.Text.StartsWith("  ") => "  ",
             ConsoleLineKind.App => AppPrefix,
             ConsoleLineKind.AppError => AppErrorPrefix,
             _ => "",

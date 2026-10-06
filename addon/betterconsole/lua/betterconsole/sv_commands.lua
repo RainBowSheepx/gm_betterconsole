@@ -129,3 +129,64 @@ end)
 function BC.StartCommands()
 	-- Nothing to do at start: the app asks for the catalog once it is connected.
 end
+
+--[[
+Who makes the server quit: "quit", "exit" or "_restart" run from Lua (ulx rcon, a restart addon, a chat
+command) is reported to the app with the player in whose call it happened and the place in the code, for
+the start / stop journal. The player is the first one among the callers' locals (ULX passes the calling
+player along). Nothing else is changed: the command is passed on as it was.
+]]
+if not BC.QuitDetour then
+	BC.QuitDetour = true
+	local QUIT = { quit = true, exit = true, _restart = true }
+
+	local function QuitVerb(text)
+		for part in string.gmatch(text, "[^;\n]+") do
+			local verb = string.match(part, "^%s*\"?([%w_]+)")
+			if verb and QUIT[string.lower(verb)] then return string.lower(verb) end
+		end
+	end
+
+	local function Caller()
+		local ply, src
+		for level = 3, 24 do
+			local info = debug.getinfo(level, "Sl")
+			if not info then break end
+			if not src and info.what ~= "C" and not tostring(info.short_src):find("betterconsole/", 1, true) then
+				src = tostring(info.short_src) .. ":" .. tostring(info.currentline)
+			end
+			if not ply and debug.getlocal then
+				for i = 1, 50 do
+					local name, v = debug.getlocal(level, i)
+					if name == nil then break end
+					if isentity(v) and IsValid(v) and v:IsPlayer() then ply = v break end
+				end
+			end
+			if ply and src then break end
+		end
+		return ply, src
+	end
+
+	local function Report(cmd, via)
+		local ok, ply, src = pcall(Caller)
+		if not ok then ply, src = nil, nil end
+		local msg = { t = "quitcmd", cmd = cmd, src = src, via = via }
+		if IsValid(ply) then msg.ply = { name = ply:Nick(), sid = ply:SteamID() } end
+		BC.Emit(msg)
+	end
+
+	local origConsoleCommand = game.ConsoleCommand
+	game.ConsoleCommand = function(text, ...)
+		if isstring(text) then
+			local verb = QuitVerb(text)
+			if verb then Report(verb, "game.ConsoleCommand") end
+		end
+		return origConsoleCommand(text, ...)
+	end
+
+	local origRun = RunConsoleCommand
+	RunConsoleCommand = function(cmd, ...)
+		if isstring(cmd) and QUIT[string.lower(cmd)] then Report(string.lower(cmd), "RunConsoleCommand") end
+		return origRun(cmd, ...)
+	end
+end

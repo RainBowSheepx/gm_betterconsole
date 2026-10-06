@@ -52,6 +52,24 @@ Start it once without BetterConsole (your old start.bat) to see if it is the ser
 happens with BetterConsole, switch off *Install the companion addon*, delete
 `garrysmod/lua/bin/gmsv_betterconsole_*.dll` and open an issue with the console output.
 
+### A double-click on a Lua path does nothing
+
+The pointer turns into a hand only over paths whose file is on the server's disk. Files of workshop
+addons are packed in `.gma` files and cannot be opened. If the hand shows but no editor opens, choose
+one in *Settings → Lua errors and files → Open Lua files with* (a toast says why it failed).
+
+### No Steam avatars
+
+They are downloaded from `steamcommunity.com`; without internet access, or when Steam limits the
+requests, the coloured initials stay (BetterConsole tries again later). Bots have none. *Settings →
+Players → Show Steam avatars* switches them off; the cache is in `cache\avatars`.
+
+### Two servers on the same port
+
+Every server needs its own `-port` (and `+clientport`); otherwise the second one cannot use the port
+it was given. A server added in the settings gets a free port; start options you paste or import keep
+theirs.
+
 ### Where are the logs?
 
 `logs\betterconsole.log` next to `BetterConsole.exe` (or in `%APPDATA%\BetterConsole`). Crashes of

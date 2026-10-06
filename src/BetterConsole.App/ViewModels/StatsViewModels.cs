@@ -68,7 +68,9 @@ public sealed class TimeSeries
 public sealed partial class ProfileRow(string key, string? source) : ObservableObject
 {
     public string Key { get; } = key;
+    /// <summary>Where the function is: "addons/x/lua/y.lua:12" (timers and net messages too).</summary>
     public string? Source { get; } = source;
+    public string? SourceTip => string.IsNullOrEmpty(Source) ? null : "Defined in " + Source;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(MsText))] private double msPerSec;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CallsText))] private double callsPerSec;

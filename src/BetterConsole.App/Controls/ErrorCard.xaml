@@ -4,13 +4,12 @@
              xmlns:c="clr-namespace:BetterConsole.App.Controls"
              c:ScrollAnchor.IsCandidate="True">
     <Border x:Name="Root" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1"
-            CornerRadius="{StaticResource Radius}" Margin="0,0,0,6" Cursor="Hand"
-            PreviewMouseLeftButtonDown="OnDown" PreviewMouseLeftButtonUp="OnUp">
+            CornerRadius="{StaticResource Radius}" Margin="0,0,0,6">
         <Grid>
             <!-- flash when the error happens again -->
             <Border x:Name="Flash" Background="{DynamicResource Brush.DangerSoft}" CornerRadius="{StaticResource Radius}" Opacity="0" IsHitTestVisible="False" />
             <Border Width="3" HorizontalAlignment="Left" CornerRadius="3,0,0,3" Background="{DynamicResource Brush.Danger}" Margin="-1,-1,0,-1" />
-            <Grid Margin="12,8,8,8">
+            <Grid Margin="6,6,8,8">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -23,20 +22,23 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <TextBlock x:Name="Chevron" Style="{StaticResource Icon}" Text="&#xE76C;" FontSize="10" Margin="0,4,8,0" VerticalAlignment="Top"
-                           Foreground="{DynamicResource Brush.TextMuted}" RenderTransformOrigin="0.5,0.5">
-                    <TextBlock.RenderTransform>
-                        <RotateTransform x:Name="ChevronRotate" Angle="0" />
-                    </TextBlock.RenderTransform>
-                </TextBlock>
-                <Border Grid.Column="1" Style="{StaticResource Pill}" Background="{DynamicResource Brush.DangerSoft}" VerticalAlignment="Top" Margin="0,1,8,0"
+                <!-- Only the arrow opens the details: a click into the text selects it. -->
+                <Button x:Name="Toggle" Style="{StaticResource Btn.Icon}" Width="24" Height="24" Margin="0,0,4,0" VerticalAlignment="Top"
+                        Click="OnToggle" ToolTip="Stack trace and details">
+                    <TextBlock x:Name="Chevron" Style="{StaticResource Icon}" Text="&#xE76C;" FontSize="10" Foreground="{DynamicResource Brush.TextMuted}" RenderTransformOrigin="0.5,0.5">
+                        <TextBlock.RenderTransform>
+                            <RotateTransform x:Name="ChevronRotate" Angle="0" />
+                        </TextBlock.RenderTransform>
+                    </TextBlock>
+                </Button>
+                <Border Grid.Column="1" Style="{StaticResource Pill}" Background="{DynamicResource Brush.DangerSoft}" VerticalAlignment="Top" Margin="0,3,8,0"
                         ToolTip="How many times it happened">
                     <TextBlock Text="{Binding CountText}" FontSize="11.5" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" />
                 </Border>
-                <TextBlock Grid.Column="2" Text="{Binding LastSeenText}" FontFamily="{StaticResource Font.Mono}" FontSize="12" Margin="0,2,10,0"
+                <TextBlock Grid.Column="2" Text="{Binding LastSeenText}" FontFamily="{StaticResource Font.Mono}" FontSize="12" Margin="0,4,10,0"
                            VerticalAlignment="Top" Foreground="{DynamicResource Brush.TextMuted}" ToolTip="Last time it happened" />
-                <TextBox Grid.Column="3" Style="{StaticResource SelectableText}" Text="{Binding Headline, Mode=OneWay}"
-                         FontFamily="{StaticResource Font.Mono}" FontSize="12.5" Foreground="{DynamicResource Brush.Text}" />
+                <TextBox Grid.Column="3" Style="{StaticResource SelectableText}" Text="{Binding Headline, Mode=OneWay}" Margin="0,2,0,0"
+                         FontFamily="{StaticResource Font.Mono}" FontSize="12.5" Foreground="{DynamicResource Brush.Text}" c:LuaLinks.IsEnabled="True" />
                 <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
                     <Border Style="{StaticResource Pill}" Margin="0,0,6,0" VerticalAlignment="Center"
                             Visibility="{Binding HasAddon, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding WorkshopId, StringFormat=Workshop {0}}">
@@ -49,15 +51,16 @@
                 <!-- details -->
                 <StackPanel x:Name="Details" Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="2" Margin="0,8,0,2" Visibility="Collapsed">
                     <TextBox Style="{StaticResource SelectableText}" Text="{Binding Details, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" FontSize="12.5"
-                             Margin="0,0,0,8" Visibility="{Binding Details, Converter={StaticResource NullToCollapsed}}" />
+                             Margin="0,0,0,8" Visibility="{Binding Details, Converter={StaticResource NullToCollapsed}}" c:LuaLinks.IsEnabled="True" />
                     <TextBlock Text="STACK TRACE" Style="{StaticResource Text.Section}" />
                     <Border Background="{DynamicResource Brush.ConsoleBackground}" CornerRadius="{StaticResource Radius.Small}" Padding="10,8"
                             BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1">
                         <TextBox Style="{StaticResource SelectableText}" Text="{Binding StackText, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" FontSize="12"
-                                 Foreground="{DynamicResource Brush.TextSecondary}" TextWrapping="NoWrap" />
+                                 Foreground="{DynamicResource Brush.TextSecondary}" TextWrapping="NoWrap" c:LuaLinks.IsEnabled="True" />
                     </Border>
                     <TextBox Style="{StaticResource SelectableText}" Text="{Binding Context, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" FontSize="12"
-                             Margin="0,6,0,0" Foreground="{DynamicResource Brush.Warning}" Visibility="{Binding Context, Converter={StaticResource NullToCollapsed}}" />
+                             Margin="0,6,0,0" Foreground="{DynamicResource Brush.Warning}" Visibility="{Binding Context, Converter={StaticResource NullToCollapsed}}"
+                             c:LuaLinks.IsEnabled="True" />
                     <TextBlock Margin="0,8,0,0" FontSize="11.5" Foreground="{DynamicResource Brush.TextMuted}">
                         <Run Text="First" /> <Run Text="{Binding FirstSeenText, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" />
                         <Run Text="  ·  last" /> <Run Text="{Binding LastSeenText, Mode=OneWay}" FontFamily="{StaticResource Font.Mono}" />

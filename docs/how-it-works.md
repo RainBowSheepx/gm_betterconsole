@@ -61,6 +61,16 @@ data instead.
   - the engine's list of console commands (`ConCommandBase`, walked from a variable the addon
     creates; read under structured exception handling) for auto-completion;
   - `QueryThreadCycleTime` for the CPU time of the game thread (*Game thread load*).
+- What the addon changes in the server's Lua (only while it runs under BetterConsole):
+  - `timer.Create` / `timer.Simple` / `timer.Adjust` wrap their functions (to time them while the
+    profiler is on, otherwise they only call them);
+  - `CreateConVar` remembers the names of new variables (for auto-completion);
+  - `game.ConsoleCommand` and `RunConsoleCommand` are wrapped to notice `quit`, `exit` and
+    `_restart` (for the journal) and pass every call on unchanged. Anti-backdoor or anti-cheat addons
+    that compare these functions with the originals see a Lua function there, and code that kept
+    the originals before BetterConsole's addon loaded is not noticed;
+  - while profiling: hooks, `net.Receive` handlers and `net.Start` / `net.Send*` are wrapped, and put
+    back when it stops.
 
 ## Messages
 
@@ -72,7 +82,8 @@ One JSON object per line, with its type in `t`.
 |---|---|---|
 | `hello` | after (re)connecting | `addon`, `module`, `gmod`, `branch`, `map`, `gamemode`, `hostname`, `maxplayers`, `tickrate` |
 | `stats` | every second | `fps`, `ft` / `ftmax` / `ftsd` (frame time avg / max / deviation, ms), `busy` / `busymax` (CPU ms per frame), `load` (%), `tps`, `tickrate`, `players`, `bots`, `maxplayers`, `ents`, `edicts`, `lua` (KB), `netin` / `netout` (bytes/s), `map`, `uptime`, `spikes` |
-| `players` | every 1–2 s | `list` of `uid`, `name`, `sid`, `sid64`, `bot`, `ip`, `ping`, `loss`, `choke`, `in`, `out`, `fps`, `time`, `group`, `team`, `frags`, `deaths`, `load`, ULX `ulxid` / `gagged` / `muted` / `jailed`; `ulx`, `groups`, `load` (measured?) |
+| `players` | every 1–2 s | `list` of `uid`, `name`, `sid`, `sid64`, `bot`, `ip`, `ping`, `loss`, `choke`, `in`, `out`, `fps`, `time`, `group`, `team`, `frags`, `deaths`, `load`, ULX `ulxid` / `gagged` / `muted` / `jailed`; `ulx`, `groups` (highest first), `ranks` (group → how many groups it inherits from, ULX or CAMI), `load` (measured?) |
+| `quitcmd` | Lua ran `quit`, `exit` or `_restart` | `cmd`, `ply` (`name`, `sid`: the player in whose call it ran), `src` (where in the code), `via`; the reason in the journal if the server exits right after |
 | `err` | on a Lua error (repeats at most once a second, with `n`) | `realm` (`server` / `client`), `msg`, `stack` (`fn`, `src`, `line`), `addon`, `wsid`, `ply`, `n`, `time` |
 | `cmds` | on request | `list` of `n` (name), `c` (is a command), `f` (flags), `h` (help), `v` / `d` / `mn` / `mx` (value, default, limits); `maps` |
 | `cvals` | on request | `vals`: name → current value |

@@ -31,7 +31,7 @@ namespace BetterConsole.App.Services;
 /// quit
 /// </code>
 /// </summary>
-public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string file)
+public sealed class UiScriptRunner(MainWindow window, AppShell shell, string file)
 {
     public async Task RunAsync()
     {
@@ -66,9 +66,9 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 {
                     bool ok = arg switch
                     {
-                        "bridge" => vm.BridgeConnected,
-                        "stats" => vm.Stats.Fps.Count > 3,
-                        "catalog" => vm.Catalog.IsLoaded,
+                        "bridge" => Vm.BridgeConnected,
+                        "stats" => Vm.Stats.Fps.Count > 3,
+                        "catalog" => Vm.Catalog.IsLoaded,
                         _ => true,
                     };
                     if (ok) break;
@@ -76,7 +76,7 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 }
                 break;
             case "tab":
-                if (vm.FindTab(arg) is { } tab) vm.SelectedTab = tab;
+                if (Vm.FindTab(arg) is { } tab) Vm.SelectedTab = tab;
                 await Task.Delay(300);
                 break;
             case "size":
@@ -92,7 +92,7 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 await Task.Delay(300);
                 break;
             case "send":
-                vm.SendCommand(arg);
+                Vm.SendCommand(arg);
                 break;
             case "input":
                 Console()?.ScriptInput(arg);
@@ -114,10 +114,10 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
             {
                 var a = arg.Split(' ');
                 int n = int.Parse(a[1]);
-                if (a[0] == "server" && n < vm.ServerErrors.Items.Count) vm.ServerErrors.Items[n].IsExpanded = true;
-                if (a[0] == "client" && n < vm.ClientErrors.Players.Count)
+                if (a[0] == "server" && n < Vm.ServerErrors.Items.Count) Vm.ServerErrors.Items[n].IsExpanded = true;
+                if (a[0] == "client" && n < Vm.ClientErrors.Players.Count)
                 {
-                    var p = vm.ClientErrors.Players[n];
+                    var p = Vm.ClientErrors.Players[n];
                     p.IsExpanded = true;
                     p.HasUnseen = false;
                     if (a.Length > 2 && int.Parse(a[2]) is var m && m < p.Entries.Count) p.Entries[m].IsExpanded = true;
@@ -128,7 +128,7 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
             case "menu":
             {
                 var a = arg.Split(' ');
-                if (a[0] == "players" && vm.FindTab("players")?.Content is PlayersView pv) pv.ScriptOpenMenu(int.Parse(a[1]));
+                if (a[0] == "players" && Vm.FindTab("players")?.Content is PlayersView pv) pv.ScriptOpenMenu(int.Parse(a[1]));
                 await Task.Delay(400);
                 break;
             }
@@ -136,7 +136,7 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 if (arg == "close") { _settings?.Close(); _settings = null; }
                 else
                 {
-                    _settings = new SettingsWindow(vm, window.Plugins, firstRun: false) { Owner = window, Width = 780, Height = 900 };
+                    _settings = new SettingsWindow(shell, Vm, firstRun: false) { Owner = window, Width = 800, Height = 900 };
                     _settings.Show();
                 }
                 await Task.Delay(500);
@@ -158,22 +158,121 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 var a = arg.Split(' ');
                 double amount = double.Parse(a[1], CultureInfo.InvariantCulture);
                 if (a[0] == "console") Console()?.ScriptScroll(amount);
-                else if (vm.FindTab(a[0])?.Content is FrameworkElement view && FindScroller(view) is { } sv)
+                else if (a[0] == "settings" && _settings != null && FindScroller(_settings) is { } ss) ss.ScrollToVerticalOffset(ss.VerticalOffset + amount);
+                else if (Vm.FindTab(a[0])?.Content is FrameworkElement view && FindScroller(view) is { } sv)
                     sv.ScrollToVerticalOffset(sv.VerticalOffset + amount);
                 await Task.Delay(300);
                 break;
             }
             case "hover":
                 // Simulates the pointer over the client error list (freezes the order).
-                vm.ClientErrors.IsFrozen = arg == "on";
+                Vm.ClientErrors.IsFrozen = arg == "on";
                 await Task.Delay(100);
                 break;
             case "prof":
-                vm.SetProfiling(arg == "on");
+                Vm.SetProfiling(arg == "on");
                 break;
             case "shot":
                 Shot(arg);
                 break;
+            // ---- testing without a real game client
+            case "inject":
+                // inject players {"maxplayers":16,"list":[...]}  (a bridge message as if the addon sent it)
+            {
+                var a = arg.Split(' ', 2);
+                Vm.InjectBridgeMessage(a[0], a[1]);
+                await Task.Delay(300);
+                break;
+            }
+            case "resolve":
+                Log.Write($"ui-script: resolve {arg} -> {Vm.Files.Resolve(arg) ?? "(not found)"}");
+                break;
+            case "openlink":
+                // openlink addons/x/lua/y.lua 12  (what a double-click on that path does)
+            {
+                var a = arg.Split(' ');
+                if (Vm.Files.Resolve(a[0]) is { } file) Controls.LuaLinks.Open?.Invoke(window, file, a.Length > 1 ? int.Parse(a[1]) : 1);
+                else Log.Write($"ui-script: openlink {a[0]}: not found");
+                await Task.Delay(500);
+                break;
+            }
+            case "log":
+                Log.Write("ui-script: " + arg);
+                break;
+            // ---- multi-console
+            case "server":
+                // server 1  (show the n-th server in the main window)
+                if (int.TryParse(arg, out var si) && si < shell.Servers.Count && shell.WindowOf(shell.Servers[si]) == window) window.ShowServer(shell.Servers[si]);
+                await Task.Delay(300);
+                break;
+            case "sidebar":
+                if (arg == "off") window.CloseSide();
+                else window.OpenSide();
+                await Task.Delay(450);
+                break;
+            case "detach":
+                if (int.TryParse(arg, out var di) && di < shell.Servers.Count) shell.Detach(shell.Servers[di]);
+                await Task.Delay(800);
+                break;
+            case "attach":
+                if (int.TryParse(arg, out var ai) && ai < shell.Servers.Count) shell.Attach(shell.Servers[ai]);
+                else shell.MergeAll();
+                await Task.Delay(500);
+                break;
+            case "button":
+                // button start|stop|restart  (the header buttons of the shown server)
+                (arg switch { "stop" => Vm.StopCommand, "restart" => Vm.RestartCommand, _ => Vm.StartCommand }).Execute(null);
+                await Task.Delay(500);
+                break;
+            case "closewindow":
+                // closewindow 1  (as if the user closed the own window of the n-th server)
+                if (int.TryParse(arg, out var ci) && ci < shell.Servers.Count && shell.WindowOf(shell.Servers[ci]) is { IsMain: false } cw) cw.Close();
+                await Task.Delay(800);
+                break;
+            case "removeserver":
+                // removeserver 1  (as if it was removed in the settings and they were saved)
+                if (int.TryParse(arg, out var ri) && ri < shell.Servers.Count)
+                {
+                    shell.Settings.Servers.Remove(shell.Servers[ri].Profile);
+                    shell.ApplySettings();
+                }
+                await Task.Delay(800);
+                break;
+            case "multi":
+                // multi off|on  (the multi-console check box, saved)
+                shell.Settings.MultiServer = arg != "off";
+                shell.ApplySettings();
+                await Task.Delay(800);
+                break;
+            case "start":
+                // start 1  (the n-th server; no number: the shown one)
+                await (int.TryParse(arg, out var sti) && sti < shell.Servers.Count ? shell.Servers[sti] : Vm).StartAsync("UI script");
+                break;
+            case "dialog":
+                // dialog affinity | journal: shown without blocking the script; "dialog close" closes it
+                _dialog?.Close();
+                _dialog = arg switch
+                {
+                    "affinity" => new Controls.AffinityDialog(window, Vm.Profile.AffinityMask, Vm.Profile.Priority, shell.MultiServer ? Vm.DisplayName : null,
+                        shell.Servers.Where(s => s != Vm).Select(s => (s.DisplayName, s.Profile.AffinityMask)).ToList()),
+                    "journal" => new JournalWindow(shell, null) { Owner = window },
+                    _ => null,
+                };
+                _dialog?.Show();
+                await Task.Delay(600);
+                break;
+            case "shot-dialog":
+                // The whole client area, margins included.
+                if (_dialog != null && VisualTreeHelper.GetChildrenCount(_dialog) > 0 && VisualTreeHelper.GetChild(_dialog, 0) is FrameworkElement dr) ShotElement(dr, _dialog.Background, arg, _dialog.Title);
+                break;
+            case "shot-window":
+                // shot-window 1 path.png  (the own window of the n-th server)
+            {
+                var a = arg.Split(' ', 2);
+                if (int.TryParse(a[0], out var wi) && wi < shell.Servers.Count && shell.WindowOf(shell.Servers[wi]) is { } w && w.Content is FrameworkElement wc)
+                    ShotElement(wc, w.Background, a[1], w.Title);
+                break;
+            }
             case "quit":
                 window.Close();
                 break;
@@ -196,9 +295,12 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
         return null;
     }
 
-    private ConsoleView? Console() => vm.FindTab("console")?.Content as ConsoleView;
+    private ServerViewModel Vm => window.Current!;
+
+    private ConsoleView? Console() => Vm.FindTab("console")?.Content as ConsoleView;
 
     private SettingsWindow? _settings;
+    private Window? _dialog;
 
     /// <summary>Renders one element (a dialog's content) with a drawn title bar.</summary>
     private static void ShotElement(FrameworkElement content, Brush background, string path, string title)
@@ -215,7 +317,7 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
                 new Typeface(font, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 12, ThemeManager.GetBrush("Text"), 1.25);
             dc.DrawText(ft, new Point(14, (titleH - ft.Height) / 2));
             dc.DrawRectangle(background, null, new Rect(0, titleH, w, h));
-            dc.DrawRectangle(new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, titleH, w, h));
+            dc.DrawImage(Snapshot(content, w, h, scale), new Rect(0, titleH, w, h));
         }
         var rtb = new RenderTargetBitmap((int)Math.Ceiling(w * scale), (int)Math.Ceiling((h + titleH) * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         rtb.Render(dv);
@@ -223,6 +325,21 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
         var enc = new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(rtb));
         enc.Save(fs);
+    }
+
+    /// <summary>
+    /// The element as it is on screen, in its own coordinates (a visual brush would align the bounds of
+    /// everything inside, which a shadow or a panel slid out to the left would shift).
+    /// </summary>
+    private static BitmapSource Snapshot(FrameworkElement element, double w, double h, double scale)
+    {
+        // The element is drawn at its offset in the parent (a dialog's margin): render with it, cut it off.
+        var off = VisualTreeHelper.GetOffset(element);
+        int x = (int)Math.Round(off.X * scale), y = (int)Math.Round(off.Y * scale);
+        int pw = (int)Math.Ceiling(w * scale), ph = (int)Math.Ceiling(h * scale);
+        var rtb = new RenderTargetBitmap(x + pw, y + ph, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        rtb.Render(element);
+        return x == 0 && y == 0 ? rtb : new CroppedBitmap(rtb, new Int32Rect(x, y, pw, ph));
     }
 
     [DllImport("user32.dll")]
@@ -261,8 +378,7 @@ public sealed class UiScriptRunner(MainWindow window, MainViewModel vm, string f
             }
             // The window background lives on the Window, not on its content.
             dc.DrawRectangle(window.Background, null, new Rect(0, titleH, w, h));
-            dc.DrawRectangle(new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top },
-                null, new Rect(0, titleH, w, h));
+            dc.DrawImage(Snapshot(content, w, h, scale), new Rect(0, titleH, w, h));
 
             // Popups (auto-completion, context menus) are separate windows.
             var origin = content.PointToScreen(new Point(0, 0));

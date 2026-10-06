@@ -38,10 +38,24 @@
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
-                                        <Border Width="22" Height="22" CornerRadius="11" Background="{Binding Name, Converter={StaticResource NameToColor}}" Margin="0,0,8,0">
-                                            <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="#FFFFFF" FontSize="11" FontWeight="SemiBold"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
+                                        <!-- Steam avatar over the coloured initial (shown while there is no avatar, or for bots) -->
+                                        <Grid Width="22" Height="22" Margin="0,0,8,0">
+                                            <Border CornerRadius="11" Background="{Binding Name, Converter={StaticResource NameToColor}}">
+                                                <Grid>
+                                                    <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="#FFFFFF" FontSize="11" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Visibility="{Binding IsBot, Converter={StaticResource BoolToCollapsed}}" />
+                                                    <TextBlock Text="&#xE99A;" FontFamily="{StaticResource Font.Icons}" Foreground="#FFFFFF" FontSize="12"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Visibility="{Binding IsBot, Converter={StaticResource BoolToVisibility}}" />
+                                                </Grid>
+                                            </Border>
+                                            <Ellipse Visibility="{Binding Avatar, Converter={StaticResource NullToCollapsed}}">
+                                                <Ellipse.Fill>
+                                                    <ImageBrush ImageSource="{Binding Avatar}" Stretch="UniformToFill" />
+                                                </Ellipse.Fill>
+                                            </Ellipse>
+                                        </Grid>
                                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="  BOT" VerticalAlignment="Center" FontSize="10.5" Foreground="{DynamicResource Brush.TextMuted}"
                                                    Visibility="{Binding IsBot, Converter={StaticResource BoolToVisibility}}" />
@@ -64,7 +78,7 @@
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTemplateColumn Header="Group" SortMemberPath="Group" Width="Auto" MinWidth="90">
+                        <DataGridTemplateColumn Header="Group" SortMemberPath="GroupRank" Width="Auto" MinWidth="90">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <Border Style="{StaticResource Pill}" HorizontalAlignment="Left">

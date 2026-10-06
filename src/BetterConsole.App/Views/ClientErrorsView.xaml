@@ -68,10 +68,17 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock x:Name="Chevron" Style="{StaticResource Icon}" Text="&#xE76C;" FontSize="10" Margin="0,0,10,0" Foreground="{DynamicResource Brush.TextMuted}" />
-                                    <Border Grid.Column="1" Width="28" Height="28" CornerRadius="14" Background="{Binding Name, Converter={StaticResource NameToColor}}" Margin="0,0,10,0">
-                                        <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
+                                    <Grid Grid.Column="1" Width="28" Height="28" Margin="0,0,10,0">
+                                        <Border CornerRadius="14" Background="{Binding Name, Converter={StaticResource NameToColor}}">
+                                            <TextBlock Text="{Binding Name, Converter={StaticResource Initial}}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="13"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <Ellipse Visibility="{Binding Avatar, Converter={StaticResource NullToCollapsed}}">
+                                            <Ellipse.Fill>
+                                                <ImageBrush ImageSource="{Binding Avatar}" Stretch="UniformToFill" />
+                                            </Ellipse.Fill>
+                                        </Ellipse>
+                                    </Grid>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBox Style="{StaticResource SelectableText}" Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="13.5" TextWrapping="NoWrap" />

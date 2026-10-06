@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 using BetterConsole.App.Services;
+using BetterConsole.App.Views;
 using BetterConsole.Core.Console;
 using BetterConsole.Core.Errors;
 using BetterConsole.Core.Server;
@@ -13,36 +15,11 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace BetterConsole.App.ViewModels;
 
-/// <summary>A tab of the main window. Content is created the first time the tab is shown.</summary>
-public sealed partial class TabVm : ObservableObject
-{
-    private FrameworkElement? _content;
-
-    public TabVm(string id, string header, string icon, int order, Func<FrameworkElement> factory)
-    {
-        Id = id;
-        this.header = header;
-        this.icon = icon;
-        Order = order;
-        Factory = factory;
-    }
-
-    public string Id { get; }
-    /// <summary>A glyph of Segoe Fluent Icons (or any short text).</summary>
-    [ObservableProperty] private string icon;
-    public int Order { get; set; }
-    public Func<FrameworkElement> Factory { get; }
-    [ObservableProperty] private string header;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasBadge))] private string? badge;
-    /// <summary>"danger", "accent" or "muted".</summary>
-    [ObservableProperty] private string badgeKind = "muted";
-    [ObservableProperty] private bool isSelected;
-    public bool HasBadge => !string.IsNullOrEmpty(Badge);
-    public bool IsCreated => _content != null;
-    public FrameworkElement Content => _content ??= Factory();
-}
-
-public sealed partial class MainViewModel : ObservableObject
+/// <summary>
+/// One server: its process, console, errors, players, statistics, tabs and plugins. Lives as long as
+/// the server is in the list; one window at a time shows it (the main window or a window of its own).
+/// </summary>
+public sealed partial class ServerViewModel : ObservableObject
 {
     private readonly ConcurrentQueue<(string Type, JsonElement Msg)> _bridgeQueue = new();
     private readonly ConcurrentQueue<ConsoleEvent> _appLines = new();
@@ -59,17 +36,23 @@ public sealed partial class MainViewModel : ObservableObject
     // the same errors on connect; those are matched against this and not counted twice.
     private readonly Dictionary<string, int> _textErrorsOffline = new();
     private ProcessSnapshot? _lastProcess;
+    // The next scheduled restart and the warnings already said for it (minutes before).
+    private DateTime? _nextRestart;
+    private readonly HashSet<int> _warned = new();
 
-    public MainViewModel(AppSettings settings)
+    public ServerViewModel(AppShell shell, ServerProfile profile)
     {
-        Settings = settings;
-        History = new CommandHistory(Path.Combine(AppSettings.DataDirectory, "history.txt"));
-        Controller = new ServerController(settings.Server)
+        Shell = shell;
+        Settings = shell.Settings;
+        History = shell.History;
+        Files = new LuaFileResolver(() => Profile.GameDirectory);
+        Controller = new ServerController(profile)
         {
             BeforeStart = PrepareServerAsync,
         };
-        Controller.Pipeline.HideErrors = settings.HideErrorsInConsole;
+        Controller.Pipeline.HideErrors = Settings.HideErrorsInConsole;
         Controller.StateChanged += (o, n, code) => _uiActions.Enqueue(() => OnStateChanged(o, n, code));
+        Controller.Lifecycle += e => shell.Journal.Add(Profile.Id, DisplayName, e);
         Controller.Notice += (text, isError) => WriteAppLine(text, isError);
         Controller.CommandEcho += text => _appLines.Enqueue(new LineAdded(Interlocked.Decrement(ref _appLineId),
             new ConsoleLine { Text = text, Time = DateTime.Now, Kind = ConsoleLineKind.Command }));
@@ -77,8 +60,10 @@ public sealed partial class MainViewModel : ObservableObject
         Controller.Bridge.ConnectionChanged += c => _uiActions.Enqueue(() => OnBridgeConnection(c));
         Controller.Bridge.MessageReceived += (t, m) => _bridgeQueue.Enqueue((t, m));
 
-        ServerErrors.MaxItems = settings.MaxErrorsPerList;
-        ClientErrors.MaxItemsPerPlayer = Math.Max(50, settings.MaxErrorsPerList / 2);
+        ServerErrors.MaxItems = Settings.MaxErrorsPerList;
+        ClientErrors.MaxItemsPerPlayer = Math.Max(50, Settings.MaxErrorsPerList / 2);
+        ServerErrors.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ServerErrorsVm.UnseenCount)) OnPropertyChanged(nameof(UnseenErrors)); };
+        ClientErrors.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ClientErrorsVm.UnseenCount)) OnPropertyChanged(nameof(UnseenErrors)); };
 
         _pump = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
         _pump.Tick += (_, _) => Pump();
@@ -86,10 +71,17 @@ public sealed partial class MainViewModel : ObservableObject
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _clock.Tick += (_, _) => ClockTick();
         _clock.Start();
+        UpdateTitle();
+        UpdateSchedule();
     }
 
+    public AppShell Shell { get; }
     public AppSettings Settings { get; }
     public ServerController Controller { get; }
+    /// <summary>This server's settings (the same object as in <see cref="AppSettings.Servers"/>).</summary>
+    public ServerProfile Profile => Controller.Profile;
+    /// <summary>Finds the Lua files of this server for links in errors and the profiler.</summary>
+    public LuaFileResolver Files { get; }
     public CommandHistory History { get; }
     public CommandCatalog Catalog { get; } = new();
     public ServerErrorsVm ServerErrors { get; } = new();
@@ -98,8 +90,9 @@ public sealed partial class MainViewModel : ObservableObject
     public PlayersVm Players { get; } = new();
     public ObservableCollection<TabVm> Tabs { get; } = new();
     public ObservableCollection<StatusItemVm> ExtraStatus { get; } = new();
-    public ObservableCollection<ToastVm> Toasts { get; } = new();
     public Dictionary<string, LuaTabVm> LuaTabs { get; } = new();
+    /// <summary>The plugin instances of this server (each server has its own).</summary>
+    public List<Plugins.PluginInstance> PluginInstances { get; } = new();
 
     /// <summary>Console events in order, delivered on the UI thread about 30 times a second.</summary>
     public event Action<IReadOnlyList<ConsoleEvent>>? ConsoleEvents;
@@ -108,18 +101,76 @@ public sealed partial class MainViewModel : ObservableObject
     public event Action<bool>? BridgeConnectionChanged;
     public event Action<ServerState, ServerState, int?>? ServerStateChanged;
     public event Action<ServerSnapshot>? SnapshotUpdated;
-    /// <summary>A server addon defined a tab (the window builds a view for it).</summary>
+    /// <summary>A server addon defined a tab.</summary>
     public event Action<LuaTabVm>? LuaTabAdded;
     public event Action<string>? LuaTabRemoved;
     /// <summary>The settings window saved new values.</summary>
     public event Action? SettingsChanged;
+    /// <summary>Right before the settings are written on exit: views put what they remember into them.</summary>
+    public event Action? SavingSettings;
 
-    public void RaiseSettingsChanged() => SettingsChanged?.Invoke();
+    public void RaiseSavingSettings() => SavingSettings?.Invoke();
 
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsRunning), nameof(CanStart), nameof(StateText))] private ServerState state;
+    /// <summary>A notification for the window that shows this server (on the UI thread).</summary>
+    public event Action<string, NotifyKind>? Notified;
+
+    public void RaiseSettingsChanged()
+    {
+        Controller.Pipeline.HideErrors = Settings.HideErrorsInConsole;
+        ServerErrors.MaxItems = Settings.MaxErrorsPerList;
+        ClientErrors.MaxItemsPerPlayer = Math.Max(50, Settings.MaxErrorsPerList / 2);
+        Players.ShowAvatars = Settings.ShowAvatars;
+        ClientErrors.ShowAvatars = Settings.ShowAvatars;
+        UpdateTitle();
+        UpdateSchedule();
+        SettingsChanged?.Invoke();
+    }
+
+    /// <summary>The built-in tabs. Addon tabs come and go with the addon, plugin tabs with the plugins.</summary>
+    public void CreateTabs()
+    {
+        AddTab(new TabVm("console", "Console", "", 0, () => new ConsoleView(this)));
+        AddTab(new TabVm("players", "Players", "", 10, () => new PlayersView(this)));
+        AddTab(new TabVm("client-errors", "Client errors", "", 20, () => new ClientErrorsView(this)));
+        AddTab(new TabVm("server-errors", "Server errors", "", 30, () => new ServerErrorsView(this)));
+        AddTab(new TabVm("stats", "Statistics", "", 40, () => new StatsView(this)));
+        SelectedTab = FindTab("console");
+        // The console keeps every line from the start, also of a server no window shows yet.
+        _ = FindTab("console")!.Content;
+        LuaTabAdded += tab => AddTab(new TabVm("lua:" + tab.Id, tab.Title, tab.Icon, 100 + tab.Order, () => new LuaTabView(tab)));
+        LuaTabRemoved += id => RemoveTab("lua:" + id);
+        Players.ShowAvatars = Settings.ShowAvatars;
+        ClientErrors.ShowAvatars = Settings.ShowAvatars;
+    }
+
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsRunning), nameof(CanStart), nameof(StateText), nameof(StateColorKey))] private ServerState state;
     [ObservableProperty] private TabVm? selectedTab;
     [ObservableProperty] private string windowTitle = "BetterConsole";
-    [ObservableProperty] private string? hostname;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HostnameIfDifferent))] private string? hostname;
+    /// <summary>The name in the server list: the name given in the settings, else the hostname, else the folder.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HostnameIfDifferent))] private string displayName = "Server";
+    /// <summary>Shown in a window of its own instead of the main window.</summary>
+    [ObservableProperty] private bool isDetached;
+    /// <summary>"Restart at 05:00" (scheduled), or empty.</summary>
+    [ObservableProperty] private string nextRestartText = "";
+    /// <summary>One line for the server list: map, players and server fps, or the state.</summary>
+    [ObservableProperty] private string summaryText = "Stopped";
+
+    /// <summary>The hostname under the name in the server list, when the name is not the hostname already.</summary>
+    public string? HostnameIfDifferent => !string.IsNullOrWhiteSpace(Hostname) && Hostname != DisplayName ? Hostname : null;
+    /// <summary>Errors of this server nobody has looked at yet (a badge in the server list).</summary>
+    public int UnseenErrors => ServerErrors.UnseenCount > 0 ? ServerErrors.UniqueCount : 0;
+    /// <summary>Theme brush of the state dot.</summary>
+    public string StateColorKey => State switch
+    {
+        ServerState.Running => ServerIdle ? "Brush.Warning" : "Brush.Success",
+        ServerState.Starting or ServerState.Stopping => "Brush.Warning",
+        ServerState.Crashed => "Brush.Danger",
+        _ => "Brush.TextMuted",
+    };
+
+    partial void OnServerIdleChanged(bool value) => OnPropertyChanged(nameof(StateColorKey));
     [ObservableProperty] private string uptimeText = "";
     [ObservableProperty] private bool bridgeConnected;
     [ObservableProperty] private string bridgeText = "Addon: off";
@@ -182,16 +233,36 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (oldValue != null) oldValue.IsSelected = false;
         if (newValue != null) newValue.IsSelected = true;
-        switch (newValue?.Id)
-        {
-            case "server-errors": ServerErrors.UnseenCount = 0; break;
-            case "client-errors": ClientErrors.UnseenCount = 0; break;
-        }
+        MarkSeen();
         if (oldValue?.Id == "players" || newValue?.Id == "players") SendPlayerSubscription();
         UpdateBadges();
     }
 
-    private void SendPlayerSubscription() => Request("sub", new { players = SelectedTab?.Id == "players" });
+    /// <summary>
+    /// A window shows this server now (or stopped showing it). Errors count as seen and the per-player
+    /// load is measured only while somebody can see them, not for a server in the background.
+    /// </summary>
+    [ObservableProperty] private bool isShown;
+
+    partial void OnIsShownChanged(bool value)
+    {
+        MarkSeen();
+        SendPlayerSubscription();
+        UpdateBadges();
+    }
+
+    /// <summary>The errors of the tab that is in view are not new any more.</summary>
+    private void MarkSeen()
+    {
+        if (!IsShown) return;
+        switch (SelectedTab?.Id)
+        {
+            case "server-errors": ServerErrors.UnseenCount = 0; break;
+            case "client-errors": ClientErrors.UnseenCount = 0; break;
+        }
+    }
+
+    private void SendPlayerSubscription() => Request("sub", new { players = IsShown && SelectedTab?.Id == "players" });
 
     /// <summary>
     /// Sends a request to the addon. A hibernating server runs no frames, so nothing would read it:
@@ -230,26 +301,32 @@ public sealed partial class MainViewModel : ObservableObject
 
     // ------------------------------------------------------------------------------ server control
 
+    // The buttons of the header: their reasons go to the journal.
     [RelayCommand]
-    public async Task StartAsync()
+    private Task Start() => StartAsync("Start button");
+
+    [RelayCommand]
+    private Task Stop() => StopAsync("Stop button");
+
+    [RelayCommand]
+    private Task Restart() => RestartAsync("Restart button");
+
+    public async Task StartAsync(string reason)
     {
         if (!CanStart) return;
         Settings.Save();
-        await Controller.StartAsync();
+        await Controller.StartAsync(reason);
     }
 
-    [RelayCommand]
-    public async Task StopAsync() => await Controller.StopAsync();
+    public Task StopAsync(string reason) => Controller.StopAsync(reason);
 
-    [RelayCommand]
-    public async Task RestartAsync()
+    public async Task RestartAsync(string reason)
     {
         Settings.Save();
-        await Controller.RestartAsync();
+        await Controller.RestartAsync(reason);
     }
 
-    [RelayCommand]
-    public void Kill() => Controller.Kill();
+    public void Kill() => Controller.Kill("Killed from BetterConsole (… → Kill the server process)");
 
     private Task PrepareServerAsync(ServerProfile profile, string exe)
     {
@@ -262,12 +339,12 @@ public sealed partial class MainViewModel : ObservableObject
         });
     }
 
-    /// <summary>Runs a console command typed by the user. Returns false when it could not be sent.</summary>
-    public bool SendCommand(string text)
+    /// <summary>Runs a console command (typed by the user: it goes into the history). Returns false when it could not be sent.</summary>
+    public bool SendCommand(string text, bool remember = true)
     {
         text = text.Trim();
         if (text.Length == 0) return true;
-        History.Add(text);
+        if (remember) History.Add(text);
         if (!Controller.SendCommand(text, out var problem))
         {
             WriteAppLine(problem ?? "The command could not be sent.", true);
@@ -276,31 +353,52 @@ public sealed partial class MainViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>
+    /// A line of BetterConsole's own (a notice). Long ones are broken at spaces: a line wider than the
+    /// console would bring up its horizontal scroll bar (start options, long exit reasons).
+    /// </summary>
     public void WriteAppLine(string text, bool isError, uint argb = 0)
     {
-        var line = new ConsoleLine
+        const int max = 100;
+        var now = DateTime.Now;
+        bool first = true;
+        foreach (var part in Wrap(text, max))
         {
-            Text = text,
-            Time = DateTime.Now,
-            Kind = isError ? ConsoleLineKind.AppError : ConsoleLineKind.App,
-            Spans = argb != 0 ? [new ColorSpan(0, text.Length, argb)] : Array.Empty<ColorSpan>(),
-        };
-        _appLines.Enqueue(new LineAdded(Interlocked.Decrement(ref _appLineId), line));
+            // The console shows a continuation without its marker (see ConsoleView.AppendPending).
+            var t = first ? part : "  " + part;
+            first = false;
+            var line = new ConsoleLine
+            {
+                Text = t,
+                Time = now,
+                Kind = isError ? ConsoleLineKind.AppError : ConsoleLineKind.App,
+                Spans = argb != 0 ? [new ColorSpan(0, t.Length, argb)] : Array.Empty<ColorSpan>(),
+            };
+            _appLines.Enqueue(new LineAdded(Interlocked.Decrement(ref _appLineId), line));
+        }
     }
 
+    private static IEnumerable<string> Wrap(string text, int max)
+    {
+        foreach (var raw in text.Split('\n'))
+        {
+            var rest = raw.TrimEnd('\r');
+            while (rest.Length > max)
+            {
+                int cut = rest.LastIndexOf(' ', max);
+                if (cut < max / 2) cut = max; // one long word (a path): cut it
+                yield return rest[..cut].TrimEnd();
+                rest = rest[cut..].TrimStart();
+            }
+            yield return rest;
+        }
+    }
+
+    /// <summary>A toast in the window that shows this server.</summary>
     public void Notify(string text, NotifyKind kind = NotifyKind.Info)
     {
-        void Show()
-        {
-            var t = new ToastVm(text, kind);
-            Toasts.Add(t);
-            while (Toasts.Count > 4) Toasts.RemoveAt(0);
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(kind == NotifyKind.Error ? 8 : 4.5) };
-            timer.Tick += (_, _) => { timer.Stop(); Toasts.Remove(t); };
-            timer.Start();
-        }
-        if (Application.Current.Dispatcher.CheckAccess()) Show();
-        else _uiActions.Enqueue(Show);
+        if (Application.Current.Dispatcher.CheckAccess()) Notified?.Invoke(text, kind);
+        else _uiActions.Enqueue(() => Notified?.Invoke(text, kind));
     }
 
     private void OnStateChanged(ServerState old, ServerState now, int? exitCode)
@@ -318,17 +416,74 @@ public sealed partial class MainViewModel : ObservableObject
         if (now == ServerState.Crashed)
         {
             if (exitCode == 0) Notify("The server quit by itself (exit code 0).", NotifyKind.Warning);
-            else Notify($"The server crashed (exit code {ServerController.FormatExitCode(exitCode ?? 0)}).", NotifyKind.Error);
+            else Notify($"The server crashed: exit code {ServerController.FormatExitCode(exitCode ?? 0)}.", NotifyKind.Error);
         }
         if (now == ServerState.Starting) Stats.Clear();
+        if (now == ServerState.Running) UpdateSchedule();
         ServerStateChanged?.Invoke(old, now, exitCode);
         UpdateTitle();
+        UpdateSummary();
+    }
+
+    partial void OnHostnameChanged(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value == Profile.LastHostname) return;
+        Profile.LastHostname = value;
     }
 
     private void UpdateTitle()
     {
-        var name = string.IsNullOrWhiteSpace(Hostname) ? null : Hostname;
+        var host = !string.IsNullOrWhiteSpace(Hostname) ? Hostname
+            : !string.IsNullOrWhiteSpace(Profile.LastHostname) ? Profile.LastHostname : null;
+        DisplayName = !string.IsNullOrWhiteSpace(Profile.Name) ? Profile.Name.Trim()
+            : host ?? (string.IsNullOrWhiteSpace(Profile.ServerDirectory) ? "New server" : Path.GetFileName(Profile.ServerDirectory.TrimEnd('\\', '/')));
+        var name = Settings.MultiServer ? DisplayName : host;
         WindowTitle = name != null ? $"{name} — BetterConsole" : "BetterConsole";
+    }
+
+    // ------------------------------------------------------------------------------ scheduled restarts
+
+    /// <summary>The next restart of the schedule (after the settings changed or a restart happened).</summary>
+    private void UpdateSchedule()
+    {
+        var next = Profile.NextRestart(DateTime.Now);
+        // The same restart (settings saved, the server came back): the warnings said for it stay said.
+        if (next != _nextRestart) _warned.Clear();
+        _nextRestart = next;
+        NextRestartText = _nextRestart is { } at
+            ? $"Restart {(at.Date == DateTime.Today ? "at" : "tomorrow at")} {at:HH:mm}"
+            : "";
+    }
+
+    /// <summary>Once a second: warnings in the chat before a scheduled restart, then the restart.</summary>
+    private void CheckSchedule()
+    {
+        if (_nextRestart is not { } at) return;
+        var now = DateTime.Now;
+        if (now >= at)
+        {
+            UpdateSchedule();
+            // A restart that is minutes overdue (the PC was asleep) is skipped.
+            if ((now - at).TotalMinutes > 2) return;
+            if (State != ServerState.Running) return;
+            WriteAppLine($"Scheduled restart ({at:HH:mm}).", false);
+            _ = RestartAsync($"Scheduled restart ({at:HH:mm})");
+            return;
+        }
+        if (State != ServerState.Running) return;
+        double left = (at - now).TotalSeconds;
+        foreach (var minutes in Profile.RestartWarningMinutes)
+        {
+            if (minutes <= 0 || _warned.Contains(minutes) || left > minutes * 60) continue;
+            _warned.Add(minutes);
+            // Only the latest of the warnings that are due (BetterConsole was started a minute before).
+            if (Profile.RestartWarningMinutes.Any(m => m > 0 && m < minutes && left <= m * 60)) continue;
+            if (string.IsNullOrWhiteSpace(Profile.RestartWarningText)) continue;
+            // What is really left (BetterConsole may have started after the warning was due).
+            int mins = (int)Math.Round(left / 60);
+            var time = mins >= 2 ? $"{mins} minutes" : left >= 50 ? "1 minute" : $"{(int)Math.Ceiling(left)} seconds";
+            SendCommand("say " + Profile.RestartWarningText.Replace("{time}", time), remember: false);
+        }
     }
 
     // ------------------------------------------------------------------------------ the pump
@@ -356,6 +511,18 @@ public sealed partial class MainViewModel : ObservableObject
                         Hostname = tc.Title;
                         UpdateTitle();
                     }
+                    break;
+                case LineAdded la:
+                    // rcon from "1.2.3.4:27005": command "quit"  (with the log prefix when logging is on)
+                    if (la.Line.Text.Contains("rcon from \"", StringComparison.Ordinal) && RconQuit().Match(la.Line.Text) is { Success: true } rm)
+                        Controller.NoteShutdownCause($"rcon from {rm.Groups["ip"].Value}: \"{rm.Groups["cmd"].Value}\"");
+                    // GMod refuses "quit" from Lua: "game.ConsoleCommand blocked! (quit)". It is not why the server stops later.
+                    else if (la.Line.Text.Contains(" blocked! (", StringComparison.Ordinal) && BlockedQuit().IsMatch(la.Line.Text))
+                    {
+                        _quitBlockedAt = DateTime.Now;
+                        Controller.ClearShutdownCause();
+                    }
+                    _batch.Add(e);
                     break;
                 default:
                     _batch.Add(e);
@@ -398,7 +565,34 @@ public sealed partial class MainViewModel : ObservableObject
             if (idle && (DateTime.Now - _lastPoll).TotalSeconds > 5) Poll();
         }
         else UptimeText = "";
+        CheckSchedule();
+        UpdateSummary();
     }
+
+    private void UpdateSummary()
+    {
+        if (State != ServerState.Running)
+        {
+            SummaryText = State == ServerState.Crashed && _lastExitCode is { } code and not 0
+                ? $"Crashed ({ServerController.FormatExitCode(code)})"
+                : StateText;
+            return;
+        }
+        var parts = new List<string>();
+        if (MapText is { Length: > 0 } map && map != "—") parts.Add(map);
+        if (PlayersText is { Length: > 0 } pl && pl != "—") parts.Add(pl);
+        // "66.0 fps ±0.4 ms" → "66.0 fps"; "hibernating", "idle" as they are.
+        if (SvText is { Length: > 0 } sv && sv != "—") parts.Add(sv.Contains(" fps") ? sv[..(sv.IndexOf(" fps") + 4)] : sv);
+        SummaryText = parts.Count > 0 ? string.Join(" · ", parts) : "Running · " + UptimeText;
+    }
+
+    [GeneratedRegex(@"rcon from ""(?<ip>[^""]+)"": command ""(?<cmd>(?:quit|exit|_restart)\b[^""]*)""", RegexOptions.IgnoreCase)]
+    private static partial Regex RconQuit();
+
+    [GeneratedRegex(@"blocked! \((?:quit|exit|_restart)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex BlockedQuit();
+
+    private DateTime _quitBlockedAt = DateTime.MinValue;
 
     // ------------------------------------------------------------------------------ bridge
 
@@ -490,6 +684,9 @@ public sealed partial class MainViewModel : ObservableObject
             case "st_rm":
                 if (ExtraStatus.FirstOrDefault(s => s.Id == "lua:" + StatsVm.Str(m, "id")) is { } sr) ExtraStatus.Remove(sr);
                 break;
+            case "quitcmd":
+                OnQuitCommand(m);
+                break;
             case "notify":
                 Notify(StatsVm.Str(m, "text") ?? "", (StatsVm.Str(m, "kind") ?? "info") switch
                 {
@@ -500,6 +697,26 @@ public sealed partial class MainViewModel : ObservableObject
                 });
                 break;
         }
+    }
+
+    /// <summary>For the UI script runner: a message as if the addon had sent it.</summary>
+    public void InjectBridgeMessage(string type, string json) =>
+        _bridgeQueue.Enqueue((type, JsonDocument.Parse(json).RootElement.Clone()));
+
+    /// <summary>
+    /// Lua ran "quit" / "_restart" (ulx rcon, a restart addon, a chat command): who and from where, for
+    /// the journal when the server exits right after.
+    /// </summary>
+    private void OnQuitCommand(JsonElement m)
+    {
+        // GMod said it refused this one (the console line can come before the message).
+        if ((DateTime.Now - _quitBlockedAt).TotalSeconds < 3) return;
+        var cmd = StatsVm.Str(m, "cmd") ?? "quit";
+        var where = StatsVm.Str(m, "src") is { Length: > 0 } src ? $" ({src})" : "";
+        if (m.TryGetProperty("ply", out var p) && p.ValueKind == JsonValueKind.Object)
+            Controller.NoteShutdownCause($"Player {StatsVm.Str(p, "name") ?? "?"} ({StatsVm.Str(p, "sid") ?? "?"}) ran \"{cmd}\"{where}");
+        else
+            Controller.NoteShutdownCause($"\"{cmd}\" from Lua{where}");
     }
 
     private void OnLuaTab(JsonElement m)
@@ -595,8 +812,7 @@ public sealed partial class MainViewModel : ObservableObject
         e = ErrorAttribution.Fix(e);
         if (e.Realm == LuaRealm.Client) ClientErrors.Add(e, Settings.MergeSimilarErrors);
         else ServerErrors.Add(e, Settings.MergeSimilarErrors);
-        if (SelectedTab?.Id == "server-errors") ServerErrors.UnseenCount = 0;
-        if (SelectedTab?.Id == "client-errors") ClientErrors.UnseenCount = 0;
+        MarkSeen();
         UpdateBadges();
     }
 
@@ -772,12 +988,13 @@ public sealed partial class MainViewModel : ObservableObject
         Request("prof", new { on });
     }
 
-    public async Task ShutdownAsync()
+    /// <summary>Stops the server (if it runs) and frees everything. The view model is not used afterwards.</summary>
+    public async Task ShutdownAsync(string reason = "BetterConsole was closed")
     {
+        if (Controller.State is ServerState.Running or ServerState.Starting) await Controller.StopAsync(reason);
         _pump.Stop();
         _clock.Stop();
-        if (Controller.State is ServerState.Running or ServerState.Starting) await Controller.StopAsync();
+        Pump();
         await Controller.DisposeAsync();
-        Settings.Save();
     }
 }

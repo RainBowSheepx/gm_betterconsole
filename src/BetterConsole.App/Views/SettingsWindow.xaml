@@ -1,7 +1,7 @@
 <Window x:Class="BetterConsole.App.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings — BetterConsole" Width="780" Height="720" MinWidth="620" MinHeight="480"
+        Title="Settings — BetterConsole" Width="800" Height="760" MinWidth="640" MinHeight="480"
         Background="{DynamicResource Brush.Panel}" Foreground="{DynamicResource Brush.Text}"
         FontFamily="{StaticResource Font.Ui}" FontSize="13" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
@@ -31,18 +31,66 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,6,24,10">
+        <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Padding="24,6,24,10">
             <StackPanel>
                 <Border x:Name="Welcome" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="{StaticResource Radius.Large}" Padding="14,12" Margin="0,12,0,0" Visibility="Collapsed">
                     <StackPanel>
                         <TextBlock Text="Welcome to BetterConsole" FontWeight="SemiBold" FontSize="14" />
                         <TextBlock TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource Brush.TextSecondary}"
-                                   Text="Pick the folder of your Garry's Mod dedicated server (the one with srcds.exe) and its start options. Have a start.bat? Import it — the options are copied from it." />
+                                   Text="Pick the folder of your Garry's Mod dedicated server (the one with srcds.exe) and its start options. Have a start.bat? Import it — the options are copied from it. Running several servers? Switch on multi-console below and add the others." />
                     </StackPanel>
                 </Border>
 
+                <!-- ====================================================== servers (multi-console) -->
+                <TextBlock Text="Servers" Style="{StaticResource Section}" />
+                <CheckBox x:Name="Multi" Content="Multi-console: run and watch several servers from one BetterConsole" Checked="OnMultiChanged" Unchecked="OnMultiChanged" />
+                <TextBlock Style="{StaticResource Help}" Margin="26,-4,0,10"
+                           Text="The logo in the top left corner opens the list of servers (with their state, map, players and server fps). A server can get a window of its own and come back. Settings are shared, only the server options below are per server." />
+                <Grid x:Name="ServersPanel" Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="{StaticResource Radius}" Padding="4">
+                        <ListBox x:Name="ServerList" BorderThickness="0" Background="Transparent" ItemContainerStyle="{StaticResource PlainListBoxItem}"
+                                 MaxHeight="190" SelectionChanged="OnServerSelected" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Folder}" FontSize="11.5" Foreground="{DynamicResource Brush.TextMuted}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                        <Button Click="OnAddServer" Margin="0,0,0,6" HorizontalContentAlignment="Left">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" FontSize="12" />
+                                <TextBlock Text="Add server" Margin="7,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="RemoveServer" Click="OnRemoveServer" Margin="0,0,0,6" HorizontalContentAlignment="Left">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" FontSize="12" Foreground="{DynamicResource Brush.Danger}" />
+                                <TextBlock Text="Remove" Margin="7,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource Btn.Icon}" Content="&#xE70E;" ToolTip="Move up" Click="OnMoveUp" />
+                            <Button Style="{StaticResource Btn.Icon}" Content="&#xE70D;" ToolTip="Move down" Click="OnMoveDown" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+
                 <!-- ====================================================== server -->
-                <TextBlock Text="Server" Style="{StaticResource Section}" />
+                <TextBlock x:Name="ServerHeading" Text="Server" Style="{StaticResource Section}" />
+                <StackPanel x:Name="NamePanel">
+                    <TextBlock Text="Name in the server list (empty: the hostname of the server)" Style="{StaticResource Label}" />
+                    <TextBox x:Name="ServerName" Margin="0,0,0,12" TextChanged="OnServerNameChanged" />
+                </StackPanel>
                 <TextBlock Text="Server folder (contains srcds.exe and the garrysmod folder)" Style="{StaticResource Label}" />
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="OnBrowse" />
@@ -80,9 +128,12 @@
                     <Button Style="{StaticResource Btn.Ghost}" Content="+host_workshop_collection" Tag="+host_workshop_collection 0" Click="OnAddArg" />
                     <Button Style="{StaticResource Btn.Ghost}" Content="+sv_setsteamaccount" Tag="+sv_setsteamaccount TOKEN" Click="OnAddArg" />
                 </WrapPanel>
-                <TextBlock Style="{StaticResource Help}" Text="-console is added automatically. Leave out -condebug: BetterConsole keeps the log itself (Console → Save)." />
+                <TextBlock Style="{StaticResource Help}" Text="-console is added automatically. Leave out -condebug: BetterConsole keeps the log itself (Console → Save). Several servers need different -port values." />
 
-                <CheckBox x:Name="AutoRestart" Content="Restart the server when it crashes" />
+                <CheckBox x:Name="AlwaysRun" Content="Always run" Checked="OnAlwaysRunChanged" Unchecked="OnAlwaysRunChanged" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource Help}" Margin="26,-4,0,10"
+                           Text="Starts the server again whatever stopped it: a crash, a quit from the game, rcon or an addon, &quot;quit&quot; typed in the console. Keeps trying after many crashes (waiting longer each time) and starts it with BetterConsole. Only Stop, Kill and closing BetterConsole leave it off." />
+                <CheckBox x:Name="AutoRestart" Content="Restart the server when it crashes or quits by itself" />
                 <StackPanel Orientation="Horizontal" Margin="26,0,0,8">
                     <TextBlock Text="after" VerticalAlignment="Center" Style="{StaticResource Label}" Margin="0,0,8,0" />
                     <TextBox x:Name="RestartDelay" Width="60" />
@@ -97,6 +148,33 @@
                     <TextBox x:Name="StopTimeout" Width="60" />
                     <TextBlock Text="seconds before killing the process" VerticalAlignment="Center" Style="{StaticResource Label}" Margin="8,0,0,0" />
                 </StackPanel>
+
+                <TextBlock Text="Processors and priority" Style="{StaticResource Label}" Margin="0,16,0,5" />
+                <DockPanel>
+                    <Button DockPanel.Dock="Left" Content="Choose…" Click="OnAffinity" Margin="0,0,10,0" />
+                    <TextBlock x:Name="AffinityText" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Help}" Text="Which CPUs srcds may run on (default: all of them) and the priority of its process. Also in the … menu of the window, applied at once there." />
+
+                <TextBlock Text="Scheduled restarts" Style="{StaticResource Label}" Margin="0,6,0,5" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="170" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBox x:Name="RestartTimes" FontFamily="{StaticResource Font.Mono}" TextChanged="OnRestartTimesChanged" />
+                        <TextBlock Style="{StaticResource Help}" Margin="0,3,0,8" Text="Every day at these times, e.g. 05:00, 17:30. Empty: never." />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBox x:Name="WarnMinutes" FontFamily="{StaticResource Font.Mono}" />
+                        <TextBlock Style="{StaticResource Help}" Margin="0,3,0,8" Text="warn players this many minutes before (e.g. 5, 1)" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock Text="Warning in the chat ({time} becomes &quot;5 minutes&quot;)" Style="{StaticResource Label}" />
+                <TextBox x:Name="WarnText" />
+                <TextBlock x:Name="ScheduleInfo" Style="{StaticResource Help}" Text="Said with the say command. The restart is written to the start / stop journal (… menu)." />
 
                 <!-- ====================================================== console -->
                 <TextBlock Text="Console" Style="{StaticResource Section}" />
@@ -123,16 +201,28 @@
                 </Grid>
                 <CheckBox x:Name="HideErrors" Content="Keep Lua errors out of the console (they have their own tabs)" Margin="0,12,0,8" />
                 <CheckBox x:Name="ServerOnly" Content="Auto-complete server commands only (hide client commands like bind, cl_*, mat_*)" />
-                <CheckBox x:Name="ConfirmExit" Content="Ask before closing while the server runs" />
+                <CheckBox x:Name="ConfirmExit" Content="Ask before closing while a server runs" />
 
                 <!-- ====================================================== errors -->
-                <TextBlock Text="Lua errors" Style="{StaticResource Section}" />
+                <TextBlock Text="Lua errors and files" Style="{StaticResource Section}" />
                 <CheckBox x:Name="MergeSimilar" Content="Count errors that differ only in entity numbers or table addresses as one" />
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,12">
                     <TextBlock Text="Keep up to" VerticalAlignment="Center" Style="{StaticResource Label}" Margin="0,0,8,0" />
                     <TextBox x:Name="MaxErrors" Width="70" />
                     <TextBlock Text="distinct errors per list" VerticalAlignment="Center" Style="{StaticResource Label}" Margin="8,0,0,0" />
                 </StackPanel>
+                <TextBlock Text="Open Lua files with" Style="{StaticResource Label}" />
+                <ComboBox x:Name="Editor" Width="360" HorizontalAlignment="Left" SelectionChanged="OnEditorChanged" />
+                <StackPanel x:Name="CustomEditorPanel" Margin="0,8,0,0">
+                    <TextBlock Text="Command ({file} and {line} are replaced)" Style="{StaticResource Label}" />
+                    <TextBox x:Name="EditorCommand" FontFamily="{StaticResource Font.Mono}" FontSize="12.5" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource Help}" Text="Double-click a path in a Lua error, its stack trace, or a hook, timer or net message of the profiler: the file opens at its line. Works for files on the server's disk (folder addons, lua/, gamemodes/), not for those packed in workshop .gma files." />
+
+                <!-- ====================================================== players -->
+                <TextBlock Text="Players" Style="{StaticResource Section}" />
+                <CheckBox x:Name="ShowAvatars" Content="Show Steam avatars (players, client errors, admin dialogs)" />
+                <TextBlock Style="{StaticResource Help}" Margin="26,-4,0,10" Text="Downloaded from the players' public Steam profiles (steamcommunity.com) and kept in cache\avatars for a few days. Without them, or when Steam cannot be reached, the coloured initial is shown." />
 
                 <!-- ====================================================== appearance -->
                 <TextBlock Text="Appearance" Style="{StaticResource Section}" />
@@ -166,7 +256,7 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Style="{StaticResource Help}" Text="Plugin changes apply after BetterConsole restarts. How to write one: docs/plugins.md." />
+                <TextBlock Style="{StaticResource Help}" Text="Plugin changes apply after BetterConsole restarts. With several servers each server has its own instance of a plugin. How to write one: docs/plugins.md." />
             </StackPanel>
         </ScrollViewer>
 

@@ -33,6 +33,14 @@
             <Setter Property="CanUserSortColumns" Value="True" />
             <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
             <Setter Property="c:ScrollChain.IsEnabled" Value="True" />
+            <!-- double-click a path: the file opens in the editor -->
+            <Setter Property="c:LuaLinks.IsEnabled" Value="True" />
+        </Style>
+        <!-- the name of a hook / timer / net message: where its function is (tooltip, double-click opens it) -->
+        <Style x:Key="DefinedInCell" TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}">
+            <Setter Property="Tag" Value="{Binding Source}" />
+            <Setter Property="ToolTip" Value="{Binding SourceTip}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
     </UserControl.Resources>
 
@@ -231,7 +239,7 @@
                             <TextBlock Text="HOOKS (event / name)" Style="{StaticResource Text.Section}" />
                             <DataGrid x:Name="HooksGrid" ItemsSource="{Binding Stats.Hooks}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Hook" Binding="{Binding Key}" Width="2*" />
+                                    <DataGridTextColumn Header="Hook" Binding="{Binding Key}" Width="2*" ElementStyle="{StaticResource DefinedInCell}" />
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="70" />
                                     <DataGridTextColumn Header="calls/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="70" />
                                     <DataGridTextColumn Header="max ms" Binding="{Binding MaxText}" SortMemberPath="MaxMs" Width="70" />
@@ -243,7 +251,7 @@
                             <TextBlock Text="TIMERS" Style="{StaticResource Text.Section}" />
                             <DataGrid x:Name="TimersGrid" ItemsSource="{Binding Stats.Timers}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Timer" Binding="{Binding Key}" Width="*" />
+                                    <DataGridTextColumn Header="Timer" Binding="{Binding Key}" Width="*" ElementStyle="{StaticResource DefinedInCell}" />
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="65" />
                                     <DataGridTextColumn Header="calls/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="65" />
                                     <DataGridTextColumn Header="max ms" Binding="{Binding MaxText}" SortMemberPath="MaxMs" Width="65" />
@@ -263,7 +271,7 @@
                             <TextBlock Text="NET MESSAGES RECEIVED" Style="{StaticResource Text.Section}" />
                             <DataGrid x:Name="NetInGrid" ItemsSource="{Binding Stats.NetReceive}" Style="{StaticResource ProfGrid}">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Message" Binding="{Binding Key}" Width="*" />
+                                    <DataGridTextColumn Header="Message" Binding="{Binding Key}" Width="*" ElementStyle="{StaticResource DefinedInCell}" />
                                     <DataGridTextColumn Header="ms/s" Binding="{Binding MsText}" SortMemberPath="MsPerSec" Width="60" />
                                     <DataGridTextColumn Header="msg/s" Binding="{Binding CallsText}" SortMemberPath="CallsPerSec" Width="60" />
                                     <DataGridTextColumn Header="data" Binding="{Binding BytesText}" SortMemberPath="BytesPerSec" Width="85" />

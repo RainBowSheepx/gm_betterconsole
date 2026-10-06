@@ -12,10 +12,10 @@ namespace BetterConsole.App.Views;
 
 public partial class ClientErrorsView : UserControl
 {
-    private readonly MainViewModel _vm;
+    private readonly ServerViewModel _vm;
     private readonly ICollectionView _view;
 
-    public ClientErrorsView(MainViewModel vm)
+    public ClientErrorsView(ServerViewModel vm)
     {
         _vm = vm;
         InitializeComponent();

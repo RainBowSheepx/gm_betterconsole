@@ -21,7 +21,15 @@ public static class CompanionInstaller
 
     public static string ModuleName(bool is64Bit) => is64Bit ? "gmsv_betterconsole_win64.dll" : "gmsv_betterconsole_win32.dll";
 
+    // Several servers of one folder may start at the same moment (multi-console): one install at a time.
+    private static readonly object InstallLock = new();
+
     public static Result Install(ServerProfile profile, string exePath)
+    {
+        lock (InstallLock) return InstallLocked(profile, exePath);
+    }
+
+    private static Result InstallLocked(ServerProfile profile, string exePath)
     {
         var asm = Assembly.GetExecutingAssembly();
         var game = profile.GameDirectory;

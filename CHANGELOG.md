@@ -3,6 +3,39 @@
 All notable changes are listed here. The release workflow takes the notes of a release from the
 section with its tag.
 
+## v0.2.0 - 2026-10-06
+
+- **Multi-console**: several servers in one BetterConsole (*Settings → Servers*). The logo in the top
+  left corner opens the server list, which slides in over the window: each server with its state,
+  hostname, map, players and server fps, unseen errors. A red dot on the logo means another server
+  crashed or has new errors. Ctrl+Alt+1…9 switch servers. A server can get a **window of its own**
+  (and come back); with several windows every server can be watched at once. Settings are shared,
+  server options (folder, start options, CPU, schedule …) are per server. Own windows reopen where
+  they were.
+- **Always run**: the server is started again whatever stopped it — a crash, a quit from the game or
+  rcon, `quit` typed in the console — keeps trying after many crashes (waiting longer each time) and
+  starts with BetterConsole. Only Stop, Kill and closing BetterConsole leave it off.
+- **Scheduled restarts** at times of day (05:00, 17:30 …), with warnings in the chat a few minutes
+  before.
+- **Start / stop journal** (… menu): when each server started, stopped, crashed or quit by itself, and
+  why — the Start / Stop buttons, a scheduled restart, Always run, `quit` in the console, rcon, a
+  crash with its exit code, closing BetterConsole.
+- **CPU affinity and priority** of the server process: tick the processors it may run on (grouped by
+  core; performance and efficiency cores are marked), choose a priority; applied at once and on every
+  start (… menu or Settings).
+- **Lua files open in your editor**: double-click a path in a Lua error, its stack trace, or a hook,
+  timer or net message of the profiler, and the file opens at its line — VS Code, Notepad++, Sublime
+  Text or a command of your own (*Settings → Lua files*). Paths look like the rest of the text; the
+  pointer turns into a hand over the ones whose file is on the server.
+- **Steam avatars** of players in the Players tab, the client errors and the admin dialogs (can be
+  switched off; the coloured initial stays when there is none).
+- Errors open their stack trace only with the arrow, so their text can be selected with clicks.
+- Players: the Group column sorts by the group hierarchy (superadmin above admin above user, from ULX
+  or CAMI); column widths and order are remembered, *Reset columns* in the header menu.
+- The profiler shows where timers and net message handlers are defined (tooltip; double-click opens).
+- Plugins: each server gets its own instance of every plugin.
+- Fixed: "No lag spikes so far" over a list of lag spikes.
+
 ## v0.1.3 - 2026-10-06
 
 - **Find (Ctrl+F) looks like the rest of the app**: a search box with match case, whole words and

@@ -9,11 +9,15 @@
   their titles they show only their icons (the title is in the tooltip); right-click the tab bar (or
   Settings → Appearance) to always show titles or always only icons. Tabs that still do not fit are
   in the list behind the arrow next to them; Ctrl+1…9 and Ctrl+Tab switch tabs too.
-- **Server controls** on the right: the state (*Running 1h 12m*), Start / Stop / Restart, the `…`
-  menu (kill a hung server, open the server folder, documentation), the theme menu and Settings.
+- **Server controls** on the right: the state (*Running 1h 12m*; hover it for the CPU, the schedule
+  and Always run), Start / Stop / Restart, the `…` menu (kill a hung server, CPU affinity and
+  priority, the start / stop journal, open the server folder, documentation), the theme menu and
+  Settings.
 - **Status bar** at the bottom.
 - **Toasts** in the bottom right corner for things that need your attention (a crash, a finished
-  action).
+  action). With several servers, a toast of a server you are not looking at starts with its name.
+- With [several servers](#several-servers-multi-console) the **logo** in the top left corner opens the
+  server list.
 
 ## Console
 
@@ -69,9 +73,16 @@ as if you typed it into the srcds window.
 Everyone on the server, updated every second while the tab is open.
 
 - **Sort** by any column (click the header; again to reverse). Default: time on the server, the
-  longest first, so new players are at the bottom.
+  longest first, so new players are at the bottom. **Group** sorts by the group hierarchy, the
+  highest first: superadmin, admin, operator, user — and your own groups where they inherit (from ULX,
+  or from CAMI with other admin mods). The column you sorted by is remembered.
 - **Columns**: right-click the header or press *Columns* to show or hide them. Available: Nick,
-  SteamID, Group, Load ms, Loss, Ping, FPS, Time, IP, In, Out, Choke, Team, Score.
+  SteamID, Group, Load ms, Loss, Ping, FPS, Time, IP, In, Out, Choke, Team, Score. Drag a header to
+  move a column, its edge to resize it; BetterConsole keeps visibility, width and order (saved when it
+  closes). *Reset columns* in the header menu brings back the default.
+- **Steam avatars** next to the names (also in the client errors and in the admin dialogs). They come
+  from the players' public Steam profiles and are cached for a few days; bots, players whose avatar
+  could not be loaded, and *Settings → Players → Show Steam avatars* off show the coloured initial.
 - **Load ms** is the server CPU time spent on that player per tick: processing his movement
   commands (every `StartCommand` … `FinishMove` hook) and the Lua handlers of the net messages he
   sends. It is measured only while this tab is open. Yellow above 2.5 % of the tick, red above 6 %.
@@ -100,8 +111,9 @@ by name, all collapsed at first; a red dot marks players with errors you have no
 
 - Open a player to see his errors, **the most recent first**. The same error happening again only
   raises its counter (×12) and its time.
-- Click an error for its stack trace. Select text with the mouse (a click that selects does not
-  fold the card), or use the copy button.
+- The arrow of an error shows its stack trace. Its text can be selected with the mouse and copied
+  (clicks into the text do not fold the card), or use the copy button. Lua paths open in the editor
+  with a double click (see [Opening Lua files](#opening-lua-files)).
 - **Nothing jumps**: while the mouse pointer is over the list, errors that happen again only update
   their counters — the cards move to the top only after you leave the list. New errors appear
   without moving what you are looking at, and a newly erroring player does not close the one you
@@ -113,7 +125,8 @@ by name, all collapsed at first; a red dot marks players with errors you have no
 
 Errors of the server's own Lua, **oldest first**, newest at the bottom (the list follows new errors
 while you are at the bottom). Repeats raise the counter of the existing card instead of adding a new
-one. Click for the stack trace, the *Timer Failed!* line of timers, the addon and its Workshop id.
+one. The arrow shows the stack trace, the *Timer Failed!* line of timers, the addon and its Workshop
+id; double-click a path to open the file.
 
 *Settings → Count errors that differ only in entity numbers or table addresses as one* merges
 `Entity [123][prop_physics]` and `Entity [456][prop_physics]` into one error (default).
@@ -150,9 +163,84 @@ updated in place and stay in the table, so the list does not jump. The biggest e
 **Stop profiling** the last results stay until the next start. Profiling costs 1–3 microseconds per
 call, so stop it when you are done (it also stops when BetterConsole disconnects).
 
+Hover the name of a hook, timer or net message for where its function is defined; double-click it (or
+the *Defined in* path) to open that file at that line.
+
 It works next to other profilers (gProfiler and the like): BetterConsole does not wrap a hook twice
 when another profiler has wrapped its wrapper, and names timers after the function inside such
 wrappers.
+
+## Opening Lua files
+
+Paths of Lua files in errors (the message, the stack trace, *Timer Failed!*) and in the profiler
+(hooks, timers, net messages) open in your editor at their line with a **double click**. They look
+like the rest of the text; the pointer turns into a hand over the paths whose file BetterConsole found
+on the server — `addons/<folder>/lua/…`, `lua/…` (in `garrysmod/lua` or in a folder addon),
+`gamemodes/…`, and paths Lua shortened to `...nested/file.lua`. Files packed in workshop `.gma` files
+are not on disk and cannot be opened. Client errors open the server's copy of the file.
+
+*Settings → Lua errors and files → Open Lua files with*: automatic (the first of Visual Studio Code,
+Cursor, VSCodium, Notepad++, Sublime Text, else Notepad), one of them, the program Windows opens
+`.lua` files with, or a command of your own with `{file}` and `{line}`, for example
+`"C:\Tools\editor.exe" --line {line} "{file}"`.
+
+## Several servers (multi-console)
+
+*Settings → Servers → Multi-console* runs several servers from one BetterConsole. Add them in the list
+below (a new one gets the folder of the selected one and a free `-port`), give them names, and set
+the options of each: folder, start options, Always run, CPU, scheduled restarts. Everything else
+(theme, console, editor, plugins …) is shared.
+
+![The server list](images/servers.png)
+
+- The **logo** in the top left corner opens the server list; it slides in over the window. Each
+  server shows its state, name, hostname, map, players and server fps, and how many new server errors
+  it has. Click one to show it; Esc or a click next to the list closes it. **Ctrl+Alt+1…9** switch
+  servers directly. A red dot on the logo: another server crashed or has errors you have not seen.
+- The `⋯` button of a server (or a right-click): start, stop, restart, its own window, CPU affinity,
+  its settings.
+- **Its own window**: a server can be taken out of the main window (*Open in a window of its own*, or
+  the `…` menu of the window) to watch several at once. Closing that window puts the server back into
+  the main window — it keeps running. *Bring all servers into this window* in the list closes them
+  all. Own windows open again where they were the next time. One server always stays in the main
+  window; closing the main window closes BetterConsole and stops all servers.
+- Every server has its own console, errors, players, statistics, addon tabs and plugin instances.
+
+## Keeping a server up
+
+- **Restart the server when it crashes or quits by itself** — after the delay you set. More than five
+  crashes in ten minutes pause it (a crash loop).
+- **Always run** — the server is started again whatever stopped it: a crash, a quit from the game,
+  rcon or an addon, `quit` typed in the console. It keeps trying after many crashes, waiting longer
+  each time (up to 5 minutes), and it starts with BetterConsole. Only **Stop**, **Kill** and closing
+  BetterConsole leave it off.
+- **Scheduled restarts** — every day at the times you enter (`05:00, 17:30`). Players are warned in the
+  chat the given minutes before (`5, 1`) with your text (`{time}` becomes "5 minutes"). A restart that
+  is more than two minutes late (the PC was asleep) is skipped. The next one is in the tooltip of the
+  state.
+
+### The start / stop journal
+
+`…` → **Start / stop journal**: when each server started, stopped, crashed or quit by itself, with the
+reason — *Start button*, *Restart (Ctrl+F5)*, *Scheduled restart (05:00)*, *Always run after the
+crash*, *"quit" typed in the console*, *rcon from 1.2.3.4*, *Crash: exit code 0xC0000005 (access
+violation)*, *BetterConsole was closed* … — and how long it had been up. Filter by server, copy, or
+open the file (`journal.jsonl` in the data folder; the newest 5000 entries are kept).
+
+![Journal](images/journal.png)
+
+GMod refuses `quit` from Lua (`game.ConsoleCommand blocked! (quit)`), so ULX's `ulx rcon quit` does
+not stop a server; rcon from outside and binary modules can.
+
+## CPU affinity and priority
+
+`…` → **CPU affinity and priority** (or *Settings → Server → Processors and priority*): tick the
+logical processors srcds may run on — grouped by core, with performance and efficiency cores marked
+on hybrid CPUs — and pick a priority (Idle … High). All processors and Normal are the default.
+Changes apply to the running server at once and on every start. With several servers, the processors
+other servers are pinned to are named under each box: give every busy server a core of its own.
+
+![CPU affinity](images/affinity.png)
 
 ## Status bar
 
@@ -176,3 +264,5 @@ folder (two come with the release). How to make one: [themes.md](themes.md).
 | Ctrl+1 … Ctrl+9 | switch tabs |
 | Ctrl+Tab | next tab |
 | Ctrl+F | find in the console |
+| Ctrl+Alt+1 … Ctrl+Alt+9 | show another server (multi-console) |
+| Esc | close the server list |

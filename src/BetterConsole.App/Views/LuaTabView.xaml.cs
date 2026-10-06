@@ -17,11 +17,14 @@ public partial class LuaTabView : UserControl
         Update(tab);
     }
 
+    // Loaded runs again whenever the view moves to another window (multi-console): subscribe once.
+    private readonly HashSet<object> _bound = new(ReferenceEqualityComparer.Instance);
+
     private void Update(LuaTabVm tab) => Empty.Visibility = tab.Widgets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private void OnTableLoaded(object sender, RoutedEventArgs e)
     {
-        if (sender is not DataGrid grid || grid.DataContext is not TableWidgetVm vm) return;
+        if (sender is not DataGrid grid || grid.DataContext is not TableWidgetVm vm || !_bound.Add(grid)) return;
         void Build()
         {
             grid.Columns.Clear();
@@ -34,7 +37,7 @@ public partial class LuaTabView : UserControl
 
     private void OnChartLoaded(object sender, RoutedEventArgs e)
     {
-        if (sender is not TimeSeriesChart chart || chart.DataContext is not ChartWidgetVm vm) return;
+        if (sender is not TimeSeriesChart chart || chart.DataContext is not ChartWidgetVm vm || !_bound.Add(chart)) return;
         void Build()
         {
             chart.ClearSeries();

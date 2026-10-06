@@ -66,11 +66,45 @@ local function StopLoad()
 	end
 end
 
-local function Groups()
+-- How high each group is: how many groups it inherits from (user 0, admin 1, superadmin 2, a "vip" that
+-- inherits user 1 ...), from ULX or else from CAMI (other admin mods register their groups there).
+local function Ranks()
+	local parent, any = {}, false
+	if HasULX() then
+		for name, g in pairs(ULib.ucl.groups or {}) do
+			parent[name] = istable(g) and g.inherit_from or false
+			any = true
+		end
+	elseif CAMI and isfunction(CAMI.GetUsergroups) then
+		for name, g in pairs(CAMI.GetUsergroups() or {}) do
+			parent[name] = istable(g) and g.Inherits or false
+			any = true
+		end
+	end
+	if not any then return nil end
+	local ranks = {}
+	for name in pairs(parent) do
+		local depth, cur, seen = 0, parent[name], { [name] = true }
+		while isstring(cur) and cur ~= "" and not seen[cur] and depth < 32 do
+			seen[cur] = true
+			depth = depth + 1
+			cur = parent[cur]
+		end
+		ranks[name] = depth
+	end
+	return ranks
+end
+
+-- The groups, highest first (the order of the "Set group" menu).
+local function Groups(ranks)
 	if not HasULX() then return nil end
 	local list = {}
 	for name in pairs(ULib.ucl.groups or {}) do list[#list + 1] = name end
-	table.sort(list)
+	table.sort(list, function(a, b)
+		local ra, rb = ranks and ranks[a] or 0, ranks and ranks[b] or 0
+		if ra ~= rb then return ra > rb end
+		return a < b
+	end)
 	return list
 end
 
@@ -112,7 +146,8 @@ function BC.SendPlayers()
 		for k in pairs(loadAcc) do loadAcc[k] = nil end
 		ticks = 0
 	end
-	BC.Emit({ t = "players", list = list, maxplayers = game.MaxPlayers(), ulx = ulxOn, groups = Groups(), load = measuring })
+	local ranks = Ranks()
+	BC.Emit({ t = "players", list = list, maxplayers = game.MaxPlayers(), ulx = ulxOn, groups = Groups(ranks), ranks = ranks, load = measuring })
 end
 
 BC.On("sub", function(msg)

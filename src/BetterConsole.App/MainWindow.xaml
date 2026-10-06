@@ -39,7 +39,16 @@
         <!-- ===================================================== header: tabs + server controls -->
         <Border Background="{DynamicResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
             <DockPanel Height="46" LastChildFill="True">
-                <Image Source="Assets/logo.png" Width="22" Height="22" Margin="14,0,8,0" DockPanel.Dock="Left" RenderOptions.BitmapScalingMode="HighQuality" />
+                <Image x:Name="LogoImage" Source="Assets/logo.png" Width="22" Height="22" Margin="14,0,8,0" DockPanel.Dock="Left" RenderOptions.BitmapScalingMode="HighQuality" />
+                <!-- multi-console: the logo opens the server list (the shown server's name is in the window title) -->
+                <Button x:Name="ServerButton" DockPanel.Dock="Left" Style="{StaticResource Btn.Ghost}" Margin="6,0,2,0" Padding="8,4" Height="36"
+                        Click="OnServerButton" Visibility="Collapsed">
+                    <Grid>
+                        <Image Source="Assets/logo.png" Width="22" Height="22" RenderOptions.BitmapScalingMode="HighQuality" />
+                        <Ellipse x:Name="AttentionDot" Width="9" Height="9" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-3,-4,0"
+                                 Fill="{DynamicResource Brush.Danger}" Stroke="{DynamicResource Brush.Panel}" StrokeThickness="1.5" Visibility="Collapsed" />
+                    </Grid>
+                </Button>
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,10,0" VerticalAlignment="Center">
                     <!-- state pill -->
@@ -152,7 +161,7 @@
         <Grid x:Name="Host" Grid.Row="1" />
 
         <!-- toasts -->
-        <ItemsControl Grid.Row="1" ItemsSource="{Binding Toasts}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,78" IsHitTestVisible="False">
+        <ItemsControl x:Name="ToastList" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,78" IsHitTestVisible="False">
             <ItemsControl.ItemTemplate>
                 <DataTemplate DataType="{x:Type vm:ToastVm}">
                     <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.BorderStrong}" BorderThickness="1" CornerRadius="8"
@@ -259,5 +268,111 @@
                 </c:OverflowPanel>
             </DockPanel>
         </Border>
+
+        <!-- ===================================================== the server list (multi-console): slides in over the window -->
+        <Grid x:Name="SideOverlay" Grid.RowSpan="3" Visibility="Collapsed" Panel.ZIndex="100">
+            <Border x:Name="SideDim" Background="#FF000000" Opacity="0" MouseLeftButtonDown="OnSideDimClick" />
+            <Border x:Name="SidePanel" Width="330" HorizontalAlignment="Left" Background="{DynamicResource Brush.Panel}"
+                    BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,1,0">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="SideShift" X="-340" />
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.45" />
+                </Border.Effect>
+                <DockPanel>
+                    <!-- same height as the header, so the logo stays where it was -->
+                    <Border DockPanel.Dock="Top" Height="47" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Btn.Icon}" Content="&#xE711;" FontSize="11" Margin="0,0,8,0" ToolTip="Close (Esc)" Click="OnSideClose" />
+                            <Button Style="{StaticResource Btn.Ghost}" Margin="6,0,6,0" Padding="8,4" Height="36" Click="OnSideClose" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal">
+                                    <Image Source="Assets/logo.png" Width="22" Height="22" RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <TextBlock Text="Servers" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource Brush.Text}" Margin="9,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </DockPanel>
+                    </Border>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="10,6,10,12">
+                        <Border Height="1" Background="{DynamicResource Brush.Border}" Margin="-10,0,-10,8" />
+                        <Button Style="{StaticResource Btn.Ghost}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSideAddServer" Padding="10,7">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" FontSize="13" />
+                                <TextBlock Text="Add a server…" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="SideMergeButton" Style="{StaticResource Btn.Ghost}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSideMerge" Padding="10,7"
+                                ToolTip="Close the servers' own windows and show them all here again">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8A0;" FontSize="13" />
+                                <TextBlock Text="Bring all servers into this window" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource Btn.Ghost}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnSideJournal" Padding="10,7">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE81C;" FontSize="13" />
+                                <TextBlock Text="Start / stop journal" Margin="10,0,0,0" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,8,8,4">
+                        <ItemsControl x:Name="ServerList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:ServerViewModel}">
+                                    <Border x:Name="Item" CornerRadius="{StaticResource Radius}" Padding="10,8,6,9" Margin="0,0,0,4" Background="Transparent"
+                                            BorderThickness="1" BorderBrush="Transparent" Cursor="Hand"
+                                            MouseLeftButtonUp="OnSideServerClick" MouseRightButtonUp="OnSideServerMenu">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Ellipse Width="9" Height="9" Margin="2,5,10,0" VerticalAlignment="Top"
+                                                     Fill="{Binding StateColorKey, Converter={StaticResource ResourceBrush}}" ToolTip="{Binding StateText}" />
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding HostnameIfDifferent}" FontSize="11.5" Foreground="{DynamicResource Brush.TextSecondary}" TextTrimming="CharacterEllipsis"
+                                                           Visibility="{Binding HostnameIfDifferent, Converter={StaticResource NullToCollapsed}}" Margin="0,1,0,0" />
+                                                <TextBlock Text="{Binding SummaryText}" FontSize="11.5" Foreground="{DynamicResource Brush.TextMuted}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"
+                                                           FontFamily="{StaticResource Font.Mono}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
+                                                <Border Style="{StaticResource Pill}" Background="{DynamicResource Brush.DangerSoft}" Margin="0,0,4,0" Padding="6,0" VerticalAlignment="Center"
+                                                        Visibility="{Binding UnseenErrors, Converter={StaticResource NullToCollapsed}}" ToolTip="Server errors you have not looked at">
+                                                    <TextBlock Text="{Binding UnseenErrors}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Danger}" />
+                                                </Border>
+                                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8A7;" FontSize="12" Margin="2,2,4,0" Foreground="{DynamicResource Brush.TextMuted}"
+                                                           ToolTip="In a window of its own" Visibility="{Binding IsDetached, Converter={StaticResource BoolToVisibility}}" />
+                                                <Button x:Name="ItemMore" Style="{StaticResource Btn.Icon}" Width="24" Height="22" Content="&#xE712;" FontSize="11" Click="OnSideServerMore"
+                                                        ToolTip="Start, stop, own window, settings" Opacity="0" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <Trigger SourceName="Item" Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Item" Property="Background" Value="{DynamicResource Brush.SurfaceHover}" />
+                                            <Setter TargetName="ItemMore" Property="Opacity" Value="1" />
+                                        </Trigger>
+                                        <DataTrigger Value="True">
+                                            <DataTrigger.Binding>
+                                                <MultiBinding Converter="{StaticResource SameObject}">
+                                                    <Binding />
+                                                    <Binding Path="CurrentServer" RelativeSource="{RelativeSource AncestorType=Window}" />
+                                                </MultiBinding>
+                                            </DataTrigger.Binding>
+                                            <Setter TargetName="Item" Property="Background" Value="{DynamicResource Brush.Surface}" />
+                                            <Setter TargetName="Item" Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

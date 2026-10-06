@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using BetterConsole.App.ViewModels;
@@ -9,12 +8,12 @@ using BetterConsole.App.ViewModels;
 namespace BetterConsole.App.Controls;
 
 /// <summary>
-/// A Lua error: count, time, message; click to show the stack trace. Text can be selected with the
-/// mouse: a click that selected something (or dragged) does not toggle the card.
+/// A Lua error: count, time, message; the arrow shows the stack trace. The text can be selected and
+/// copied freely (a click into it does not fold the card); Lua paths open in the editor with a double
+/// click (see <see cref="LuaLinks"/>).
 /// </summary>
 public partial class ErrorCard : UserControl
 {
-    private Point _downAt;
     private ErrorEntryVm? _vm;
 
     public ErrorCard()
@@ -50,6 +49,7 @@ public partial class ErrorCard : UserControl
     {
         bool open = _vm?.IsExpanded == true;
         Details.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        Toggle.ToolTip = open ? "Hide the stack trace" : "Stack trace and details";
         double angle = open ? 90 : 0;
         if (animate) ChevronRotate.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(angle, TimeSpan.FromMilliseconds(120)));
         else
@@ -59,30 +59,9 @@ public partial class ErrorCard : UserControl
         }
     }
 
-    private void OnDown(object sender, MouseButtonEventArgs e) => _downAt = e.GetPosition(this);
-
-    private void OnUp(object sender, MouseButtonEventArgs e)
+    private void OnToggle(object sender, RoutedEventArgs e)
     {
-        if (_vm == null) return;
-        if (IsInside(e.OriginalSource as DependencyObject, CopyButton)) return;
-        var p = e.GetPosition(this);
-        if ((p - _downAt).Length > 4) return;
-        if (FindTextBox(e.OriginalSource as DependencyObject) is { SelectionLength: > 0 }) return;
-        _vm.IsExpanded = !_vm.IsExpanded;
-    }
-
-    private static bool IsInside(DependencyObject? node, DependencyObject target)
-    {
-        for (var cur = node; cur != null; cur = VisualTreeHelper.GetParent(cur))
-            if (cur == target) return true;
-        return false;
-    }
-
-    private static TextBox? FindTextBox(DependencyObject? node)
-    {
-        for (var cur = node; cur != null; cur = cur is Visual ? VisualTreeHelper.GetParent(cur) : LogicalTreeHelper.GetParent(cur))
-            if (cur is TextBox tb) return tb;
-        return null;
+        if (_vm != null) _vm.IsExpanded = !_vm.IsExpanded;
     }
 
     private void OnCopy(object sender, RoutedEventArgs e)

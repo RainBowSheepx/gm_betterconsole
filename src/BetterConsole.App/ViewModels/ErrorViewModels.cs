@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using System.Windows.Media;
+using BetterConsole.App.Services;
 using BetterConsole.Core.Errors;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -158,6 +160,8 @@ public sealed partial class PlayerErrorsVm : ObservableObject
     [ObservableProperty] private bool isFresh;
     /// <summary>Repeats that would move cards while the list is frozen.</summary>
     [ObservableProperty] private int pendingMoves;
+    /// <summary>The Steam avatar, once loaded (null: the coloured initial is shown).</summary>
+    [ObservableProperty] private ImageSource? avatar;
 
     public ObservableCollection<ErrorEntryVm> Entries { get; } = new();
     public int UniqueCount => Entries.Count;
@@ -269,7 +273,28 @@ public sealed partial class ClientErrorsVm : ObservableObject
             }
         }
         group.Add(e, mergeSimilar, IsFrozen, MaxItemsPerPlayer);
+        if (ShowAvatars && group.Avatar == null) LoadAvatar(group);
     }
+
+    /// <summary>Steam avatars in the player headers (Settings → Players). Off: the coloured initials.</summary>
+    public bool ShowAvatars
+    {
+        get => _showAvatars;
+        set
+        {
+            if (_showAvatars == value) return;
+            _showAvatars = value;
+            foreach (var p in Players)
+            {
+                if (!value) p.Avatar = null;
+                else LoadAvatar(p);
+            }
+        }
+    }
+    private bool _showAvatars = true;
+
+    private void LoadAvatar(PlayerErrorsVm p) =>
+        p.Avatar = AvatarCache.Get(p.SteamId64, img => { if (_showAvatars) p.Avatar = img; });
 
     private void Insert(PlayerErrorsVm group)
     {

@@ -9,6 +9,14 @@ namespace BetterConsole.Core.Server;
 /// <summary>Process-level numbers, sampled once a second while the server runs.</summary>
 public sealed record ProcessSnapshot(DateTime Time, double CpuPercent, long PrivateBytes, long WorkingSet, int Threads, int Handles, TimeSpan Uptime);
 
+public enum LifecycleKind { Started, Stopped, Crashed, Exited, StartFailed }
+
+/// <summary>
+/// The server started or stopped, and why: "Start button", "Scheduled restart (05:00)", a crash with its
+/// exit code, a quit from an addon or rcon. Written to the start / stop journal.
+/// </summary>
+public sealed record LifecycleEvent(DateTime Time, LifecycleKind Kind, string Reason, int? ExitCode = null, TimeSpan? Uptime = null);
+
 /// <summary>
 /// Owns the srcds process: start, stop, restart, crash detection and auto-restart, command input.
 /// Console output goes into <see cref="Pipeline"/>; the Lua addon talks through <see cref="Bridge"/>.
@@ -22,9 +30,17 @@ public sealed class ServerController : IAsyncDisposable
     private readonly List<DateTime> _crashTimes = new();
     private PseudoConsoleProcess? _process;
     private volatile bool _stopRequested;
+    // Stop, Kill or closing BetterConsole: not even Always run starts it again ("quit" in the console is not final).
+    private volatile bool _stopFinal;
+    // After DisposeAsync: nothing starts any more (a restart that was still waiting).
+    private volatile bool _disposed;
     private volatile bool _startCancelled;
     private DateTime _startedAt;
     private CancellationTokenSource? _restartCts;
+    // Why the process is being stopped (set with _stopRequested), and what was seen to make it quit by
+    // itself (a "quit" run by an addon, rcon) shortly before it did.
+    private string _stopReason = "Stopped";
+    private (string Text, DateTime At)? _shutdownCause;
 
     // srcds reads all pending console input in a frame, takes the first line and drops the rest:
     // lines are typed one at a time, the next one after srcds echoed the previous one.
@@ -140,6 +156,8 @@ public sealed class ServerController : IAsyncDisposable
     public Func<ServerProfile, string, Task>? BeforeStart { get; set; }
 
     public event Action<ServerState, ServerState, int?>? StateChanged;
+    /// <summary>Started, stopped, crashed, with the reason (for the journal).</summary>
+    public event Action<LifecycleEvent>? Lifecycle;
     public event Action<ProcessSnapshot>? Sampled;
     /// <summary>A command that srcds does not echo (it went through the pipe): show it yourself.</summary>
     public event Action<string>? CommandEcho;
@@ -158,25 +176,56 @@ public sealed class ServerController : IAsyncDisposable
         StateChanged?.Invoke(old, s, exitCode);
     }
 
-    public async Task StartAsync()
+    private void Report(LifecycleKind kind, string reason, int? exitCode = null, TimeSpan? uptime = null) =>
+        Lifecycle?.Invoke(new LifecycleEvent(DateTime.Now, kind, reason, exitCode, uptime));
+
+    /// <summary>
+    /// Something that is about to make the server quit by itself: a "quit" an addon or a player ran, an
+    /// rcon command. Used as the reason when the process exits within a short while.
+    /// </summary>
+    public void NoteShutdownCause(string text) => _shutdownCause = (text, DateTime.Now);
+
+    /// <summary>The "quit" that was noted did not happen (GMod refused it).</summary>
+    public void ClearShutdownCause() => _shutdownCause = null;
+
+    /// <summary>Applies the profile's CPU affinity and priority to the running process. Returns the problem, or null.</summary>
+    public string? ApplyProcessSettings()
+    {
+        var pid = ProcessId;
+        if (pid == null) return null;
+        return ProcessTuning.Apply(pid.Value, Profile.AffinityMask, Profile.Priority);
+    }
+
+    public Task StartAsync(string reason = "Started") => StartCoreAsync(reason, automatic: false);
+
+    /// <summary>A start that failed on its own (Always run, an auto-restart): with Always run it is tried again.</summary>
+    private void StartFailed(string reason, bool automatic)
+    {
+        if (automatic && Profile.AlwaysRun && !_disposed) ScheduleRestart(reason, countsAsCrash: true);
+    }
+
+    private async Task StartCoreAsync(string reason, bool automatic)
     {
         lock (_lock)
         {
-            if (State is ServerState.Starting or ServerState.Running or ServerState.Stopping) return;
+            if (_disposed || State is ServerState.Starting or ServerState.Running or ServerState.Stopping) return;
         }
         var exe = Profile.ResolveExecutable();
         if (exe == null)
         {
-            Notice?.Invoke(string.IsNullOrWhiteSpace(Profile.ServerDirectory)
+            var problem = string.IsNullOrWhiteSpace(Profile.ServerDirectory)
                 ? "No server folder is set. Open Settings and choose the folder that contains srcds.exe."
-                : $"No srcds_console.exe / srcds_console_win64.exe in \"{Profile.ServerDirectory}\".", true);
+                : $"No srcds_console.exe / srcds_console_win64.exe in \"{Profile.ServerDirectory}\".";
+            Notice?.Invoke(problem, true);
+            Report(LifecycleKind.StartFailed, $"{reason}: {problem}");
+            StartFailed(reason, automatic);
             return;
         }
         // Checked and set under one lock: two quick starts must not run two servers.
         ServerState old;
         lock (_lock)
         {
-            if (State is ServerState.Starting or ServerState.Running or ServerState.Stopping) return;
+            if (_disposed || State is ServerState.Starting or ServerState.Running or ServerState.Stopping) return;
             _restartCts?.Cancel();
             old = State;
             State = ServerState.Starting;
@@ -192,12 +241,15 @@ public sealed class ServerController : IAsyncDisposable
         {
             Notice?.Invoke("Could not prepare the server: " + ex.Message, true);
             SetState(ServerState.Stopped);
+            Report(LifecycleKind.StartFailed, $"{reason}: could not prepare the server ({ex.Message})");
+            StartFailed(reason, automatic);
             return;
         }
         if (_startCancelled)
         {
             Notice?.Invoke("Start cancelled.", false);
             SetState(ServerState.Stopped);
+            Report(LifecycleKind.StartFailed, $"{reason}: cancelled ({_stopReason})");
             return;
         }
 
@@ -205,6 +257,8 @@ public sealed class ServerController : IAsyncDisposable
         _sampler.Reset();
         ClearInput();
         _stopRequested = false;
+        _stopFinal = false;
+        _shutdownCause = null;
         var args = Profile.Arguments ?? "";
         if (!args.Contains("-console", StringComparison.OrdinalIgnoreCase)) args = "-console " + args;
 
@@ -217,12 +271,22 @@ public sealed class ServerController : IAsyncDisposable
             lock (_lock) _process = p;
             _startedAt = DateTime.Now;
             Notice?.Invoke($"Starting {Path.GetFileName(exe)} {args}", false);
+            if (!ProcessTuning.IsAll(Profile.AffinityMask) || Profile.Priority != "Normal")
+            {
+                var problem = ProcessTuning.Apply(p.ProcessId, Profile.AffinityMask, Profile.Priority);
+                Notice?.Invoke(problem == null
+                    ? $"CPU: {ProcessTuning.Describe(Profile.AffinityMask)} · priority {ProcessTuning.PriorityText(Profile.Priority)}."
+                    : "Could not set CPU affinity / priority: " + problem, problem != null);
+            }
             SetState(ServerState.Running);
+            Report(LifecycleKind.Started, reason);
         }
         catch (Exception ex)
         {
             Notice?.Invoke("Could not start the server: " + ex.Message, true);
             SetState(ServerState.Stopped);
+            Report(LifecycleKind.StartFailed, $"{reason}: {ex.Message}");
+            StartFailed(reason, automatic);
         }
     }
 
@@ -241,47 +305,78 @@ public sealed class ServerController : IAsyncDisposable
     private void Exited(int code)
     {
         var uptime = DateTime.Now - _startedAt;
+        bool always = Profile.AlwaysRun;
         if (_stopRequested)
         {
             Notice?.Invoke($"Server stopped (exit code {code}, up {FormatSpan(uptime)}).", false);
             SetState(ServerState.Stopped, code);
+            Report(LifecycleKind.Stopped, _stopReason, code, uptime);
+            // "quit" typed in the console stops it for good, unless it has to run always (only Stop,
+            // Kill and closing BetterConsole are final then).
+            if (!_stopFinal && always) ScheduleRestart("Always run: started again after \"quit\" in the console", countsAsCrash: false);
             return;
         }
 
         // Exit code 0 is a "quit" from somewhere else (an addon, rcon): restarted like a crash, as a
         // restart script would.
+        var cause = _shutdownCause is { } sc && (DateTime.Now - sc.At).TotalSeconds < 45 ? sc.Text : null;
         Notice?.Invoke(code == 0
-            ? $"The server quit by itself after {FormatSpan(uptime)} (exit code 0)."
+            ? $"The server quit by itself after {FormatSpan(uptime)} (exit code 0{(cause != null ? ": " + cause : "")})."
             : $"Server exited unexpectedly with code {FormatExitCode(code)} after {FormatSpan(uptime)}.", code != 0);
         SetState(ServerState.Crashed, code);
-        if (!Profile.AutoRestart) return;
+        if (code == 0) Report(LifecycleKind.Exited, cause ?? "Quit by itself (rcon, a module or the engine ran \"quit\")", code, uptime);
+        else Report(LifecycleKind.Crashed, "Crash: exit code " + FormatExitCode(code), code, uptime);
+        if (!Profile.AutoRestart && !always) return;
+        var prefix = always ? "Always run" : "Auto-restart";
+        ScheduleRestart(code == 0 ? $"{prefix} after the server quit" : $"{prefix} after the crash", countsAsCrash: true);
+    }
 
-        var now = DateTime.Now;
-        _crashTimes.Add(now);
-        _crashTimes.RemoveAll(t => (now - t).TotalMinutes > 10);
-        if (_crashTimes.Count > 5)
-        {
-            Notice?.Invoke("The server crashed more than 5 times in 10 minutes. Auto-restart is paused; start it by hand.", true);
-            return;
-        }
+    /// <summary>
+    /// Starts the server again after the delay of the profile. More than 5 crashes in 10 minutes pause
+    /// auto-restart; with Always run the wait grows instead (up to 5 minutes) and it keeps trying.
+    /// Start, Stop and Kill cancel a pending restart.
+    /// </summary>
+    private void ScheduleRestart(string reason, bool countsAsCrash)
+    {
         var delay = Math.Clamp(Profile.RestartDelaySeconds, 0, 600);
+        if (countsAsCrash)
+        {
+            var now = DateTime.Now;
+            _crashTimes.Add(now);
+            _crashTimes.RemoveAll(t => (now - t).TotalMinutes > 10);
+            if (_crashTimes.Count > 5)
+            {
+                if (!Profile.AlwaysRun)
+                {
+                    Notice?.Invoke("The server crashed more than 5 times in 10 minutes. Auto-restart is paused; start it by hand.", true);
+                    return;
+                }
+                delay = Math.Min(300, Math.Max(delay, 5) * (1 << Math.Min(6, _crashTimes.Count - 5)));
+                Notice?.Invoke($"The server crashed {_crashTimes.Count} times in 10 minutes; Always run tries again in {delay} s.", true);
+            }
+        }
         Notice?.Invoke($"Restarting in {delay} s...", false);
         var cts = new CancellationTokenSource();
-        lock (_lock) _restartCts = cts;
+        lock (_lock)
+        {
+            _restartCts?.Cancel();
+            _restartCts = cts;
+        }
         _ = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(delay), cts.Token).ConfigureAwait(false);
-                if (State == ServerState.Crashed) await StartAsync().ConfigureAwait(false);
+                if (State is ServerState.Crashed or ServerState.Stopped) await StartCoreAsync(reason, automatic: true).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { }
         });
     }
 
     /// <summary>Asks srcds to quit, kills it after the timeout.</summary>
-    public async Task StopAsync()
+    public async Task StopAsync(string reason = "Stopped")
     {
+        _stopReason = reason;
         PseudoConsoleProcess? p;
         lock (_lock)
         {
@@ -307,6 +402,7 @@ public sealed class ServerController : IAsyncDisposable
             }
         }
         _stopRequested = true;
+        _stopFinal = true;
         SetState(ServerState.Stopping);
         Type("quit", isInternal: false);
         var deadline = DateTime.UtcNow.AddSeconds(Math.Clamp(Profile.StopTimeoutSeconds, 3, 300));
@@ -314,6 +410,7 @@ public sealed class ServerController : IAsyncDisposable
         if (!p.HasExited)
         {
             Notice?.Invoke("The server did not quit in time; killing it.", true);
+            _stopReason = reason + " (killed: it did not quit in time)";
             p.Kill();
             var killDeadline = DateTime.UtcNow.AddSeconds(5);
             while (!p.HasExited && DateTime.UtcNow < killDeadline) await Task.Delay(50).ConfigureAwait(false);
@@ -323,19 +420,21 @@ public sealed class ServerController : IAsyncDisposable
         while (State == ServerState.Stopping && DateTime.UtcNow < stateDeadline) await Task.Delay(50).ConfigureAwait(false);
     }
 
-    public async Task RestartAsync()
+    public async Task RestartAsync(string reason = "Restart")
     {
-        await StopAsync().ConfigureAwait(false);
-        await StartAsync().ConfigureAwait(false);
+        await StopAsync(reason).ConfigureAwait(false);
+        await StartAsync(reason).ConfigureAwait(false);
     }
 
     /// <summary>Kills the process at once (no "quit").</summary>
-    public void Kill()
+    public void Kill(string reason = "Killed")
     {
         PseudoConsoleProcess? p;
         lock (_lock) p = _process;
         if (p == null) return;
+        _stopReason = reason;
         _stopRequested = true;
+        _stopFinal = true;
         p.Kill();
     }
 
@@ -369,7 +468,9 @@ public sealed class ServerController : IAsyncDisposable
             if (verb.Equals("quit", StringComparison.OrdinalIgnoreCase) || verb.Equals("exit", StringComparison.OrdinalIgnoreCase))
             {
                 lock (_lock) _restartCts?.Cancel();
+                _stopReason = $"\"{verb.ToLowerInvariant()}\" typed in the console";
                 _stopRequested = true;
+                _stopFinal = false;
             }
             Type(command, isInternal: false);
             return true;
@@ -434,6 +535,7 @@ public sealed class ServerController : IAsyncDisposable
             0x80000003 => "breakpoint",
             0xC0000094 => "integer divide by zero",
             0x40010004 => "killed by the console closing",
+            0xFFFFFFFF => "ended by another program, e.g. Task Manager",
             _ => null,
         };
         return u >= 0x40000000 ? $"0x{u:X8}{(name != null ? $" ({name})" : "")}" : code.ToString();
@@ -442,11 +544,15 @@ public sealed class ServerController : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _sampleTimer.Dispose();
+        _disposed = true;
+        lock (_lock) _restartCts?.Cancel();
         PseudoConsoleProcess? p;
         lock (_lock) p = _process;
         if (p != null)
         {
+            _stopReason = "BetterConsole was closed";
             _stopRequested = true;
+            _stopFinal = true;
             p.Kill();
             p.Dispose();
         }

@@ -181,3 +181,9 @@ current map. The release ships it in `plugins\QuickCommands`.
 - Each plugin is loaded into its own `AssemblyLoadContext`, so your dependencies cannot clash with
   BetterConsole's.
 - There is no hot reload: restart BetterConsole after replacing a plugin DLL.
+- With several servers (multi-console) every server gets its own instance of your plugin: `Server`,
+  `Console`, `Bridge` and `Ui` are those of that server, and its tabs and status items appear in that
+  server's window. Keep shared state in static fields or in `DataDirectory` (one folder for all
+  instances).
+- `Server.StartAsync` / `StopAsync` / `RestartAsync` are written to the start / stop journal as
+  "Plugin &lt;Id&gt;".

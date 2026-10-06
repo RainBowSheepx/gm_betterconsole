@@ -60,33 +60,47 @@ You can switch the automatic install off in *Settings → Server* and install th
 
 ## Settings worth knowing
 
-- **Restart the server when it crashes** — after the delay you set. If the server crashes more than
-  five times in ten minutes, BetterConsole stops restarting it and tells you so.
+- **Always run** — the server is started again whatever stopped it (a crash, a quit from the game or
+  rcon, `quit` typed in the console), keeps trying after many crashes and starts with BetterConsole.
+  Only Stop, Kill and closing BetterConsole leave it off.
+- **Restart the server when it crashes or quits by itself** — after the delay you set. If the server
+  crashes more than five times in ten minutes, BetterConsole stops restarting it and tells you so
+  (Always run keeps trying, waiting longer).
 - **Start the server when BetterConsole opens** — put BetterConsole into the Windows *Startup*
   folder (or Task Scheduler) and the server comes up with the machine.
+- **Processors and priority** — which CPUs srcds may use and its priority (default: all, Normal).
+- **Scheduled restarts** — every day at the times you enter, with warnings in the chat before.
 - **Wait for "quit"** — Stop sends `quit` and waits this long before killing the process.
 - **Lines kept** — how much console history the tab keeps (20 000 by default).
 - **Keep Lua errors out of the console** — they go to their own tabs instead (default).
 - **Auto-complete server commands only** — hides commands that only do something on a game client
   (`bind`, `cl_*`, `mat_*`, `snd_*` …).
+- **Open Lua files with** — the editor a double-click on a Lua path opens.
+- **Show Steam avatars** — players' avatars from their Steam profiles (on by default).
 
 ## Several servers
 
-Each copy of BetterConsole manages one server. Two ways to run more:
+**Multi-console** (*Settings → Servers*): one BetterConsole runs all of them. Add the servers to the
+list, each with its own folder (or the same folder with a different `-port`) and options. The logo in
+the top left corner switches between them, and any server can get a window of its own. See
+[Several servers](user-guide.md#several-servers-multi-console) in the user guide.
 
-- **One folder per server** (simplest): unpack BetterConsole twice.
+The older ways still work:
+
+- **One folder per server**: unpack BetterConsole twice.
 - **Profiles**: start `BetterConsole.exe --profile tram` — it uses `settings.tram.json` instead of
   `settings.json`. Make a shortcut per profile. Each profile can only be open once.
 
 ## Closing BetterConsole
 
-Closing the window stops the server (it asks first, then sends `quit`). This is the same as closing
-the srcds console window — the console *is* the server's console. To keep the server running, keep
-BetterConsole open; it can be minimised.
+Closing the (main) window stops the servers (it asks first, then sends `quit`). This is the same as
+closing the srcds console window — the console *is* the server's console. To keep the servers running,
+keep BetterConsole open; it can be minimised. Closing a server's own window only puts the server back
+into the main window.
 
 ## Updating
 
-Unpack the new version over the old one (your `settings.json`, `history.txt`, themes and plugins
+Unpack the new version over the old one (your `settings.json`, `history.txt`, `journal.jsonl`, themes and plugins
 stay). The companion addon in the server is updated automatically on the next start.
 
 Next: the [user guide](user-guide.md).

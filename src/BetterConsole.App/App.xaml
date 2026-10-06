@@ -18,6 +18,7 @@
             <c:InitialConverter x:Key="Initial" />
             <c:NameToColorConverter x:Key="NameToColor" />
             <c:SpanWidthConverter x:Key="SpanWidth" />
+            <c:SameObjectConverter x:Key="SameObject" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
